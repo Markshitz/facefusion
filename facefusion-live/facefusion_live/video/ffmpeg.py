@@ -94,7 +94,7 @@ def open_reader(path: str, start: float = 0.0, duration: float | None = None) ->
     args += ["-i", str(path)]
     if duration:
         args += ["-t", f"{duration:.3f}"]
-    args += ["-an", "-sn", "-f", "rawvideo", "-pix_fmt", "bgr24", "-vsync", "passthrough", "-"]
+    args += ["-an", "-sn", "-f", "rawvideo", "-pix_fmt", "bgr24", "-fps_mode", "passthrough", "-"]
     return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=NO_WINDOW,
                             bufsize=10 ** 8)
 

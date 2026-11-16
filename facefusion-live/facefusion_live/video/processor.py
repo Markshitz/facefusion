@@ -53,6 +53,7 @@ def iter_frames(path: str, info: ff.VideoInfo, start: float = 0.0, duration: Opt
                 cancel: Optional[threading.Event] = None):
     p = ff.open_reader(path, start, duration)
     size = info.width * info.height * 3
+    n = 0
     try:
         while True:
             if cancel is not None and cancel.is_set():
@@ -60,7 +61,11 @@ def iter_frames(path: str, info: ff.VideoInfo, start: float = 0.0, duration: Opt
             buf = p.stdout.read(size)
             if len(buf) < size:
                 break
+            n += 1
             yield np.frombuffer(buf, np.uint8).reshape(info.height, info.width, 3)
+        if n == 0 and p.wait() != 0:
+            err = p.stderr.read().decode(errors="replace").strip()
+            raise ff.FFmpegError(f"Could not decode '{Path(path).name}': {err[-300:]}")
     finally:
         p.kill()
         p.wait()
