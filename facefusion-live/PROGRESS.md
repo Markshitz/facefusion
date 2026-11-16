@@ -27,3 +27,13 @@
 - GPU benchmarks (needs NVIDIA hardware).
 - Real webcam and virtual-camera verification on Windows.
 - Optional: an INT8 inswapper for faster CPU-only use (it costs some quality).
+
+## Windows CI (run #4, green: DirectML and CUDA builds)
+- All 35 tests pass on `windows-latest` from source, with real inference.
+- PyInstaller exe launched headless: "GUI OK: 4 tabs", "Swap OK: 6 faces".
+- Inno Setup installers built: DirectML 181 MB, CUDA 664 MB (artifact sizes). Each was silently installed, the
+  installed exe ran a real swap, and the uninstaller removed it.
+- The runner has no GPU, so DirectML failed to initialise and ONNX Runtime fell back to CPU on its own. The
+  fallback works, but GPU speed is still unmeasured.
+- Fixed on the way: CI FFmpeg asset name; `-vsync` was removed in new FFmpeg (now `-fps_mode`); decode errors are
+  now reported instead of silently returning zero frames.
