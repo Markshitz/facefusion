@@ -1,0 +1,116 @@
+name: FaceFusion Live — Windows build
+
+on:
+  push:
+    paths:
+      - "facefusion-live/**"
+      - ".github/workflows/facefusion-live-windows.yml"
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [directml, cuda]
+    defaults:
+      run:
+        shell: bash
+        working-directory: facefusion-live
+    env:
+      FFL_MODELS_DIR: ${{ github.workspace }}/ci_models
+      FFL_TEST_MEDIA: ${{ github.workspace }}/ci_media
+      FFL_FFMPEG_DIR: ${{ github.workspace }}/facefusion-live/packaging/ffmpeg
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (${{ matrix.flavor }})
+        run: |
+          python -m pip install --upgrade pip
+          grep -v '^onnxruntime' requirements.txt > req-ci.txt
+          pip install -r req-ci.txt pytest pyinstaller
+          if [ "${{ matrix.flavor }}" = "cuda" ]; then pip install "onnxruntime-gpu[cuda,cudnn]>=1.21"; else pip install onnxruntime-directml; fi
+          python -c "import onnxruntime as o; print(o.__version__, o.get_available_providers())"
+
+      - name: Fetch FFmpeg (GPL build, BtbN)
+        run: |
+          curl -sSL -o ffmpeg.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-7.1.zip
+          unzip -q ffmpeg.zip -d ffx
+          mkdir -p packaging/ffmpeg
+          cp ffx/*/bin/ffmpeg.exe ffx/*/bin/ffprobe.exe packaging/ffmpeg/
+          cp ffx/*/LICENSE.txt packaging/ffmpeg/LICENSE-ffmpeg.txt
+          packaging/ffmpeg/ffmpeg.exe -hide_banner -version | head -1
+
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: ci_models
+          key: models-${{ hashFiles('facefusion-live/facefusion_live/models/manifest.py') }}
+
+      - name: Download models and test media
+        run: |
+          python -m facefusion_live models --required -y
+          python -m facefusion_live models --download inswapper_128 gfpgan_1.4 xseg_1 bisenet_resnet_34 -y
+          mkdir -p "$FFL_TEST_MEDIA"
+          curl -sSL -o "$FFL_TEST_MEDIA/t1.jpg" https://raw.githubusercontent.com/deepinsight/insightface/master/python-package/insightface/data/images/t1.jpg
+          curl -sSL -o "$FFL_TEST_MEDIA/lena.jpg" https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/lena.jpg
+
+      - name: Diagnostics
+        run: python -m facefusion_live diagnostics
+
+      - name: Test suite (from source, real inference)
+        run: python -m pytest -q -p no:cacheprovider
+
+      - name: Build executable (PyInstaller)
+        env:
+          FFL_FLAVOR: ${{ matrix.flavor }}
+        run: pyinstaller packaging/facefusion_live.spec --noconfirm --distpath dist --workpath build_tmp
+
+      - name: Smoke test built executable
+        shell: pwsh
+        working-directory: facefusion-live
+        run: |
+          $p = Start-Process dist\FaceFusionLive\FaceFusionLive.exe -ArgumentList "selftest","--image","$env:FFL_TEST_MEDIA\t1.jpg","--report","$PWD\selftest.txt" -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { Write-Error "selftest exit code $($p.ExitCode)"; exit 1 }
+          if (-not (Select-String -Path selftest.txt -Pattern "Swap OK")) { Write-Error "no swap"; exit 1 }
+          "{0:N0} MB" -f ((Get-ChildItem dist\FaceFusionLive -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        working-directory: facefusion-live
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc /DFlavor=${{ matrix.flavor }} /DVersion=0.1.0 packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem dist\installer
+
+      - name: Install silently, run, uninstall
+        shell: pwsh
+        working-directory: facefusion-live
+        run: |
+          $setup = Get-ChildItem dist\installer\*.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER" -Wait
+          $exe = "$env:LOCALAPPDATA\Programs\FaceFusion Live\FaceFusionLive.exe"
+          if (-not (Test-Path $exe)) { Write-Error "not installed"; exit 1 }
+          $p = Start-Process $exe -ArgumentList "selftest","--image","$env:FFL_TEST_MEDIA\t1.jpg","--report","$PWD\installed.txt" -Wait -PassThru
+          Get-Content installed.txt
+          if ($p.ExitCode -ne 0 -or -not (Select-String -Path installed.txt -Pattern "Swap OK")) { exit 1 }
+          Start-Process "$env:LOCALAPPDATA\Programs\FaceFusion Live\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
+          Start-Sleep 5
+          if (Test-Path $exe) { Write-Error "uninstall failed"; exit 1 }
+          Write-Host "Install / launch / uninstall OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FaceFusionLive-${{ matrix.flavor }}-setup
+          path: facefusion-live/dist/installer/*.exe
+          retention-days: 14

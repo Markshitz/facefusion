@@ -1,0 +1,101 @@
+"""User configuration stored as JSON in the per-user app directory.
+
+Nothing is hardcoded to a machine path: the app directory comes from the
+platform convention and every path can be overridden via config or env vars
+(FFL_HOME, FFL_MODELS_DIR).
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sys
+from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+
+def app_home() -> Path:
+    env = os.environ.get("FFL_HOME")
+    if env:
+        return Path(env)
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        return base / "FaceFusionLive"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "facefusion-live"
+
+
+@dataclass
+class Settings:
+    # inference
+    provider: str = "auto"            # auto | cuda | directml | cpu
+    device_id: int = 0
+    models_dir: str = ""              # empty -> <app_home>/models
+    detector: str = "retinaface_10g"  # retinaface_10g (SCRFD-10G) | scrfd_2.5g
+    swapper: str = "auto"             # auto | inswapper_128 | inswapper_128_fp16
+    det_size: int = 640
+    det_threshold: float = 0.5
+    # swap quality
+    pixel_boost: int = 1              # 1, 2 or 4 -> crop 128/256/512
+    blend: float = 1.0                # 0..1 opacity of the swapped face
+    mask_blur: float = 0.3            # feather amount of box mask
+    color_match: float = 0.0          # 0..1 LAB statistic transfer strength
+    occlusion_mask: bool = False      # XSeg occluder mask
+    region_mask: bool = False         # BiSeNet face-parsing mask
+    mouth_preserve: bool = False      # keep the original inner mouth
+    enhancer: str = "none"            # none | gfpgan_1.4 | codeformer
+    enhance_strength: float = 0.8
+    codeformer_fidelity: float = 0.7
+    # tracking / temporal
+    tracking: bool = True
+    detect_interval: int = 5          # full-frame re-detection every N frames
+    smoothing: float = 0.5            # 0 = raw landmarks, 1 = heavy smoothing
+    similarity_threshold: float = 0.35
+    # live
+    camera_index: int = 0
+    camera_width: int = 1280
+    camera_height: int = 720
+    camera_fps: int = 30
+    live_watermark: bool = True
+    adaptive: bool = True
+    # export
+    video_quality: int = 18           # CRF / CQ (lower = better)
+    video_encoder: str = "auto"
+    nsfw_check: bool = True
+    telemetry: bool = False           # never used; explicit opt-in placeholder
+    consent_acknowledged: bool = False
+    recent: dict = field(default_factory=dict)
+
+    def resolved_models_dir(self) -> Path:
+        env = os.environ.get("FFL_MODELS_DIR")
+        if env:
+            return Path(env)
+        return Path(self.models_dir) if self.models_dir else app_home() / "models"
+
+
+def config_path() -> Path:
+    return app_home() / "config.json"
+
+
+def load_settings(path: Path | None = None) -> Settings:
+    path = path or config_path()
+    s = Settings()
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            known = {f.name for f in fields(Settings)}
+            for k, v in data.items():
+                if k in known:
+                    setattr(s, k, v)
+        except (OSError, ValueError) as e:
+            log.warning("Ignoring unreadable config %s: %s", path, e)
+    return s
+
+
+def save_settings(s: Settings, path: Path | None = None) -> None:
+    path = path or config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(asdict(s), indent=2), encoding="utf-8")
+    os.replace(tmp, path)
