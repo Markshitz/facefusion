@@ -49,8 +49,9 @@ def make_video(path, img, frames=50, fps=25, size=(1280, 720), audio=True, motio
 
     import cv2
     import numpy as np
+    from facefusion_live.video.ffmpeg import ffmpeg_bin
     W, H = size
-    args = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{H}", "-r", str(fps), "-i", "-"]
+    args = [ffmpeg_bin(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{H}", "-r", str(fps), "-i", "-"]
     if audio:
         args += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={frames / fps}"]
     args += ["-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p"]
