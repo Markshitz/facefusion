@@ -43,7 +43,8 @@ class Settings:
     pixel_boost: int = 2              # 1, 2 or 4 -> crop 128/256/512 (2 = sharper default)
     blend: float = 1.0                # 0..1 opacity of the swapped face
     mask_blur: float = 0.3            # feather amount of box mask
-    color_match: float = 0.0          # 0..1 LAB statistic transfer strength
+    color_match: float = 0.3          # 0..1 LAB statistic transfer strength
+    forehead_blend: float = 0.25      # 0..0.5 fade of the crop top into the original forehead (hides seams)
     occlusion_mask: bool = False      # XSeg occluder mask
     region_mask: bool = False         # BiSeNet face-parsing mask
     mouth_preserve: bool = False      # keep the original inner mouth

@@ -11,7 +11,7 @@ import numpy as np
 
 from facefusion_live.app.config import Settings
 from facefusion_live.core.align import transform_points, warp_face
-from facefusion_live.core.blend import box_mask, color_transfer, mouth_mask, paste_back
+from facefusion_live.core.blend import box_mask, color_transfer, forehead_fade, mouth_mask, paste_back
 from facefusion_live.core.face import Face
 from facefusion_live.inference.session import Sessions, provider_label, resolve_providers
 from facefusion_live.models.store import ModelStore
@@ -158,6 +158,8 @@ class FaceEngine:
         out = self.swapper.swap(crop, source.latent, boost)
 
         mask = box_mask(size, s.mask_blur, 0.0).copy()
+        if s.forehead_blend > 0:
+            mask *= forehead_fade(size, s.forehead_blend)
         if s.occlusion_mask and self.store.is_installed("xseg_1"):
             mask = np.minimum(mask, self.occluder(crop))
         if s.region_mask and self.store.is_installed("bisenet_resnet_34"):

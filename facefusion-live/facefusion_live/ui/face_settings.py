@@ -22,6 +22,7 @@ class FaceSettingsPanel(QScrollArea):
         self._slider("Blend strength", "blend", 0, 1)
         self._slider("Edge feather", "mask_blur", 0, 1)
         self._slider("Skin tone match", "color_match", 0, 1)
+        self._slider("Forehead blend", "forehead_blend", 0, 0.5)
         self._combo("Detail (pixel boost)", "pixel_boost", [("128 px (fastest)", 1), ("256 px", 2), ("512 px (best)", 4)])
         self._check("Preserve mouth", "mouth_preserve", "Keep the original mouth interior (teeth, tongue) for natural speech")
         self._check("Occlusion mask", "occlusion_mask", "Keep hands/objects in front of the face (XSeg model)")

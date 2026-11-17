@@ -28,6 +28,24 @@ def box_mask(size: int, blur: float, padding: float = 0.0) -> np.ndarray:
     return m
 
 
+_fade_cache: dict = {}
+
+
+def forehead_fade(size: int, amount: float) -> np.ndarray:
+    """Vertical ramp (size x 1) that fades the top `amount` of the swap crop into the original.
+
+    The swap crop ends mid-forehead; a short edge there shows as a horizontal line when the forehead is bare
+    or lit differently. A long smooth fade hides that boundary without touching eyes, nose or mouth.
+    """
+    key = (size, round(amount, 3))
+    r = _fade_cache.get(key)
+    if r is None:
+        t = np.clip((np.arange(size, dtype=np.float32) - size * 0.02) / max(size * amount, 1.0), 0, 1)
+        r = (t * t * (3 - 2 * t))[:, None]
+        _fade_cache[key] = r
+    return r
+
+
 def soften(mask: np.ndarray, sigma: float = 5) -> np.ndarray:
     m = cv2.GaussianBlur(np.clip(mask, 0, 1).astype(np.float32), (0, 0), sigma)
     return (np.clip(m, 0.5, 1) - 0.5) * 2
