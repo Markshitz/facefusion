@@ -1,5 +1,6 @@
 # PyInstaller spec — build with:  pyinstaller packaging/facefusion_live.spec --noconfirm
 # Produces dist/FaceFusionLive/FaceFusionLive.exe (one-folder build; models are NOT bundled).
+# FFL_ONEFILE=1 produces a single self-contained FaceFusionLive.exe instead.
 import os
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
@@ -35,6 +36,11 @@ a = Analysis([str(ROOT / "packaging" / "launcher.py")], pathex=[str(ROOT)], bina
              noarchive=False)
 pyz = PYZ(a.pure)
 icon = ROOT / "packaging" / "icon.ico"
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="FaceFusionLive", console=False,
-          icon=str(icon) if icon.exists() else None, upx=False)
-coll = COLLECT(exe, a.binaries, a.datas, name="FaceFusionLive", upx=False)
+if os.environ.get("FFL_ONEFILE") == "1":
+    # single FaceFusionLive.exe: everything inside one file, unpacked to a temp folder at start (no installation)
+    exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="FaceFusionLive", console=False,
+              icon=str(icon) if icon.exists() else None, upx=False, runtime_tmpdir=None)
+else:
+    exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="FaceFusionLive", console=False,
+              icon=str(icon) if icon.exists() else None, upx=False)
+    coll = COLLECT(exe, a.binaries, a.datas, name="FaceFusionLive", upx=False)

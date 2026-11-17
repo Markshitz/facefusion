@@ -32,6 +32,9 @@ h1 small { font: 500 12px var(--mono); color: var(--muted); margin-left: 8px; le
 .activity:has(#job[hidden]) .status:empty { display: none }
 .plate.live { min-height: 300px; background: #000 }
 .plate.live canvas { width: 100%; max-height: 70vh; object-fit: contain }
+.getapp { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; color: var(--muted) }
+.getapp strong { color: var(--fg) }
+a.btn { text-decoration: none; display: inline-block }
 .livestats { font: 12px var(--mono); color: var(--muted); min-height: 1.4em; font-variant-numeric: tabular-nums }
 .livestats b { color: var(--fg); font-weight: 500 }
 main { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 18px }
@@ -171,13 +174,18 @@ footer p { margin: 0; max-width: 90ch }
         <button class="btn" id="livebypass" disabled aria-pressed="false">Show original</button>
       </div>
       <p class="status" id="livemsg" role="status"></p>
+      <div class="getapp">
+        <div><strong>Prefer an app?</strong> The Windows version does live webcam swapping on your graphics card, plus video with sound and a virtual camera for Zoom, Teams or OBS. It's a single file and needs no installation.</div>
+        <div class="row"><a class="btn primary" href="https://github.com/Markshitz/facefusion/releases/download/windows-app/FaceFusionLive.exe" target="_blank" rel="noopener">Download for Windows (.exe)</a>
+          <a class="btn" href="https://github.com/Markshitz/facefusion/releases/tag/windows-app" target="_blank" rel="noopener">Other downloads</a></div>
+      </div>
     </section>
   </div>
 </main>
 
 <footer>
   <p>Same models and pipeline as the FaceFusion Live desktop app (SCRFD &rarr; ArcFace &rarr; inswapper). Explicit content is refused. Saved images carry a visible "AI-generated" label.</p>
-  <p>Inside claude.ai, artifacts are not allowed to use the camera, so Live webcam works when this page is opened from its own web address (for example GitHub Pages) or in the desktop app's portable build, which also handles video with audio and needs no installation.</p>
+  <p>Inside claude.ai, artifacts are not allowed to use the camera. For live webcam swapping, <a href="https://github.com/Markshitz/facefusion/releases/download/windows-app/FaceFusionLive.exe" target="_blank" rel="noopener">download the Windows app (.exe)</a>, a single file with no installation that also does video with sound, or open this page from its own web address.</p>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.wasm.min.js"></script>
@@ -674,9 +682,9 @@ $("proc").addEventListener("change", () => {
 function cameraError(e) {
   const inFrame = window.top !== window.self;
   if (inFrame && (!navigator.mediaDevices?.getUserMedia || (e && (e.name === "NotAllowedError" || e.name === "SecurityError"))))
-    return "The camera is blocked here: claude.ai doesn't let artifacts use the camera. Open this page from its own web address (see the footer) or use the portable desktop app.";
+    return "The camera is blocked here: claude.ai doesn't let artifacts use the camera. Download the Windows app below for live webcam swapping, or open this page from its own web address.";
   if (e && (e.name === "NotAllowedError" || e.name === "SecurityError"))
-    return inFrame ? "The camera is blocked here: claude.ai doesn't let artifacts use the camera. Open this page from its own web address (see the footer) or use the portable desktop app."
+    return inFrame ? "The camera is blocked here: claude.ai doesn't let artifacts use the camera. Download the Windows app below for live webcam swapping, or open this page from its own web address."
                    : "Camera permission was denied. Allow camera access for this site in the browser's address bar, then press Start camera again.";
   if (e && e.name === "NotFoundError") return "No camera was found. Connect a webcam and press Start camera again.";
   if (e && e.name === "NotReadableError") return "The camera is in use by another app (Zoom, Teams, OBS…). Close it and try again.";

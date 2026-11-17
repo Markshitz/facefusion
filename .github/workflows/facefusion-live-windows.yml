@@ -131,6 +131,28 @@ jobs:
           if (Test-Path "$env:LOCALAPPDATA\FaceFusionLive\logs\ffl.log") { Write-Host "note: LOCALAPPDATA log exists from earlier steps" }
           Write-Host "Portable extract-and-run OK"
 
+      - name: Single-file FaceFusionLive.exe (download and run)
+        if: matrix.flavor == 'directml'
+        shell: pwsh
+        working-directory: facefusion-live
+        env:
+          FFL_ONEFILE: "1"
+          FFL_FLAVOR: directml
+        run: |
+          pyinstaller packaging/facefusion_live.spec --noconfirm --distpath dist/onefile --workpath build_onefile
+          $exe = "dist\onefile\FaceFusionLive.exe"
+          "{0:N0} MB" -f ((Get-Item $exe).Length / 1MB)
+          $p = Start-Process $exe -ArgumentList "selftest","--image","$env:FFL_TEST_MEDIA\t1.jpg","--report","$PWD\onefile.log" -Wait -PassThru
+          Get-Content onefile.log
+          if ($p.ExitCode -ne 0 -or -not (Select-String -Path onefile.log -Pattern "Swap OK")) { Write-Error "single-file exe self-test failed"; exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.flavor == 'directml'
+        with:
+          name: FaceFusionLive-exe
+          path: facefusion-live/dist/onefile/FaceFusionLive.exe
+          retention-days: 14
+
       - uses: actions/upload-artifact@v4
         with:
           name: FaceFusionLive-${{ matrix.flavor }}-portable
@@ -142,3 +164,45 @@ jobs:
           name: FaceFusionLive-${{ matrix.flavor }}-setup
           path: facefusion-live/dist/installer/*.exe
           retention-days: 14
+
+  # Publish the tested Windows builds on a fixed release so there is a stable download link:
+  # https://github.com/<owner>/<repo>/releases/download/windows-app/FaceFusionLive.exe
+  release:
+    needs: windows
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          pattern: FaceFusionLive-{exe,directml-setup,cuda-setup}
+          merge-multiple: true
+      - name: Create or update the windows-app release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -la assets
+          cat > notes.md <<'EOF'
+          **FaceFusion Live for Windows**: photo, video and **live webcam** face swapping, running locally on your PC.
+
+          - **`FaceFusionLive.exe`**: single file, no installation. Download and double-click. It works on NVIDIA,
+            AMD and Intel graphics (DirectML) or on the CPU.
+          - `FaceFusionLive-*-directml-setup.exe` / `-cuda-setup.exe`: optional installers (CUDA = fastest on NVIDIA).
+
+          On first launch the app shows the required models and their sizes (about 450 MB) and asks before
+          downloading them. Windows SmartScreen may warn because the file is not code-signed: click *More info* →
+          *Run anyway*.
+
+          Use only faces of people who have given consent. The models are licensed for non-commercial use only.
+          Built automatically from commit ${{ github.sha }}.
+          EOF
+          sed -i 's/^          //' notes.md
+          if ! gh release view windows-app >/dev/null 2>&1; then
+            gh release create windows-app --prerelease --title "FaceFusion Live for Windows (latest build)" --notes-file notes.md --target "${{ github.sha }}"
+          fi
+          gh release edit windows-app --notes-file notes.md
+          gh release upload windows-app assets/FaceFusionLive.exe assets/*-setup.exe --clobber
+          gh release view windows-app
