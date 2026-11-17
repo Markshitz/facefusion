@@ -29,6 +29,15 @@ def app_home() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "facefusion-live"
 
 
+# Quality presets. Measured on CPU: the swap model is ~97% of the time; pixel boost x2 runs it 4x for ~10% more
+# detail, while GPEN restoration gives most of the sharpness for ~0.3x of one swap pass.
+PRESETS = {
+    "best": dict(pixel_boost=2, enhancer="gpen_bfr_256", enhance_strength=0.8, color_match=0.3, forehead_blend=0.25),
+    "balanced": dict(pixel_boost=1, enhancer="gpen_bfr_256", enhance_strength=0.7, color_match=0.3, forehead_blend=0.25),
+    "fast": dict(pixel_boost=1, enhancer="none", color_match=0.3, forehead_blend=0.25),
+}
+
+
 @dataclass
 class Settings:
     # inference
@@ -40,7 +49,7 @@ class Settings:
     det_size: int = 640
     det_threshold: float = 0.5
     # swap quality
-    pixel_boost: int = 2              # 1, 2 or 4 -> crop 128/256/512 (2 = sharper default)
+    pixel_boost: int = 1              # 1, 2 or 4 -> crop 128/256/512 (see PRESETS)
     blend: float = 1.0                # 0..1 opacity of the swapped face
     mask_blur: float = 0.3            # feather amount of box mask
     color_match: float = 0.3          # 0..1 LAB statistic transfer strength
@@ -49,7 +58,7 @@ class Settings:
     region_mask: bool = False         # BiSeNet face-parsing mask
     mouth_preserve: bool = False      # keep the original inner mouth
     enhancer: str = "gpen_bfr_256"    # none | gpen_bfr_256 | gpen_bfr_512 | gfpgan_1.4 | codeformer
-    enhance_strength: float = 0.8
+    enhance_strength: float = 0.7
     codeformer_fidelity: float = 0.7
     # tracking / temporal
     tracking: bool = True

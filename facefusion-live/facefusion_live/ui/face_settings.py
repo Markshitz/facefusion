@@ -15,6 +15,15 @@ class FaceSettingsPanel(QScrollArea):
         self.form.setLabelAlignment(Qt.AlignLeft)
         self.setWidget(body)
         s = ctx.settings
+        self._sync: dict = {}  # key -> function updating the widget from settings
+
+        preset = QComboBox()
+        for text, key in [("Choose a preset\u2026", ""), ("Best quality (photos, final videos)", "best"),
+                          ("Balanced (video, default)", "balanced"), ("Fast (live webcam on CPU)", "fast")]:
+            preset.addItem(text, key)
+        preset.setToolTip("Sets detail, restoration and blending together. You can fine-tune below afterwards.")
+        preset.currentIndexChanged.connect(lambda i: self.apply_preset(preset.itemData(i)))
+        self.form.addRow("Quality preset", preset)
 
         self._combo("Enhancer", "enhancer", [("Off", "none"), ("GPEN 256 (sharp, default)", "gpen_bfr_256"), ("GPEN 512 (large faces)", "gpen_bfr_512"),
                                             ("GFPGAN 1.4", "gfpgan_1.4"), ("CodeFormer", "codeformer")])
@@ -38,10 +47,21 @@ class FaceSettingsPanel(QScrollArea):
     def _changed(self):
         self.ctx.save()
 
+    def apply_preset(self, name: str) -> None:
+        from facefusion_live.app.config import PRESETS
+        if name not in PRESETS:
+            return
+        for key, value in PRESETS[name].items():
+            setattr(self.ctx.settings, key, value)
+            if key in self._sync:
+                self._sync[key](value)
+        self.ctx.save()
+
     def _slider(self, label, key, lo, hi):
         sl = QSlider(Qt.Horizontal)
         sl.setRange(0, 100)
         sl.setValue(int((getattr(self.ctx.settings, key) - lo) / (hi - lo) * 100))
+        self._sync[key] = lambda v, sl=sl: sl.setValue(int((v - lo) / (hi - lo) * 100))
         val = QLabel(f"{getattr(self.ctx.settings, key):.2f}")
         val.setObjectName("stat")
 
@@ -60,6 +80,7 @@ class FaceSettingsPanel(QScrollArea):
     def _check(self, label, key, tip):
         cb = QCheckBox()
         cb.setChecked(bool(getattr(self.ctx.settings, key)))
+        self._sync[key] = lambda v, cb=cb: cb.setChecked(bool(v))
         cb.setToolTip(tip)
 
         def on(v):
@@ -77,6 +98,7 @@ class FaceSettingsPanel(QScrollArea):
             cb.addItem(text, data)
         idx = cb.findData(getattr(self.ctx.settings, key))
         cb.setCurrentIndex(max(idx, 0))
+        self._sync[key] = lambda v, cb=cb: cb.setCurrentIndex(max(cb.findData(v), 0))
 
         def on(i):
             setattr(self.ctx.settings, key, cb.itemData(i))

@@ -11,6 +11,8 @@ import queue
 import shutil
 import tempfile
 import threading
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,7 +102,7 @@ def scan_people(engine: FaceEngine, path: str, samples: int = 24, threshold: flo
 def process_video(engine: FaceEngine, mapping: FaceMapping, src: str, out: str,
                   progress: Optional[Callable[[Progress], None]] = None,
                   cancel: Optional[threading.Event] = None, start: float = 0.0, duration: Optional[float] = None,
-                  on_frame: Optional[Callable[[np.ndarray], None]] = None) -> str:
+                  on_frame: Optional[Callable[[np.ndarray], None]] = None, workers: int = 0) -> str:
     """Swap faces throughout `src` and write `out` (original FPS, original audio, AI label)."""
     cancel = cancel or threading.Event()
     s = engine.settings
@@ -151,28 +153,47 @@ def process_video(engine: FaceEngine, mapping: FaceMapping, src: str, out: str,
     wt.start()
     t0 = time.perf_counter()
     done = 0
+    # Tracking and face assignment must run in frame order (main thread); the swap itself runs on worker
+    # threads so a GPU is fed continuously. Results are written strictly in order.
+    workers = max(1, int(workers or (2 if engine.provider != "CPU" else 1)))
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="swap")
+    pending: deque = deque()
+
+    def render(fr, pairs):
+        res = engine.process(fr, pairs)
+        return draw_label(res if res is not fr else fr.copy())
+
+    def emit_one():
+        nonlocal done
+        res = pending.popleft().result()
+        _put(q_out, res, cancel)
+        done += 1
+        if on_frame and done % 5 == 1:
+            on_frame(res)
+        if progress and (done % 5 == 0 or done == total):
+            el = time.perf_counter() - t0
+            rate = done / el if el > 0 else 0.0
+            progress(Progress(done, max(total, done), rate, (max(total - done, 0) / rate) if rate else 0.0))
+
     try:
         while True:
             fr = q_in.get()
             if fr is None or cancel.is_set():
                 break
             faces = tracker.update(fr, dt, need_embedding=mapping.needs_embeddings())
-            res = engine.process(fr, mapping.assign(faces))
-            res = draw_label(res if res is not fr else fr.copy())
-            _put(q_out, res, cancel)
-            done += 1
-            if on_frame and done % 5 == 1:
-                on_frame(res)
-            if progress and (done % 5 == 0 or done == total):
-                el = time.perf_counter() - t0
-                rate = done / el if el > 0 else 0.0
-                progress(Progress(done, max(total, done), rate, (max(total - done, 0) / rate) if rate else 0.0))
+            pending.append(pool.submit(render, fr, mapping.assign(faces)))
+            while len(pending) > workers:
+                emit_one()
+        while pending and not cancel.is_set():
+            emit_one()
+        pool.shutdown(wait=True)
         if errors and not isinstance(errors[0], Cancelled):
             raise errors[0]
         if cancel.is_set():
             raise Cancelled()
     except BaseException:
         cancel.set()
+        pool.shutdown(wait=True, cancel_futures=True)
         _drain(q_in)
         q_out.put(None)
         wt.join(5)
