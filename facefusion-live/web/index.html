@@ -59,6 +59,23 @@ input[type=range] { accent-color: var(--accent); width: 100% }
 .plate { background: var(--plate); border-radius: 10px; position: relative; min-height: 360px; display: grid; place-items: center; overflow: hidden; touch-action: none }
 .plate canvas { display: block; max-width: 100%; max-height: 72vh; height: auto }
 .plate .tag { position: absolute; top: 8px; font: 600 11px var(--mono); padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,.55); color: #fff; letter-spacing: .05em }
+.job { display: grid; gap: 6px }
+.job[hidden] { display: none }
+.job .bar { position: relative; height: 10px; border-radius: 6px; background: var(--plate); overflow: hidden }
+.job .fill { position: absolute; inset: 0; transform-origin: left center; transform: scaleX(0); background: var(--accent); transition: transform .35s ease-out }
+.job .stripes { position: absolute; top: 0; bottom: 0; left: -32px; right: 0; will-change: transform;
+  background: repeating-linear-gradient(-45deg, rgba(255,255,255,.30) 0 8px, transparent 8px 16px); animation: slide .7s linear infinite }
+@keyframes slide { to { transform: translateX(22.63px) } }
+.job .meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums }
+.job .meta strong { color: var(--fg); font-weight: 500 }
+.job.done .stripes { display: none }
+.job.done .fill { background: var(--ok) }
+.busy { position: absolute; inset: 0; display: grid; place-content: center; gap: 6px; text-align: center; background: rgba(10,12,18,.55); color: #fff; z-index: 2 }
+.busy[hidden] { display: none }
+.plate[aria-busy="true"] .empty { visibility: hidden }
+.busy b { font: 700 34px/1 var(--display); font-variant-numeric: tabular-nums }
+.busy span { font: 12.5px var(--mono); opacity: .9 }
+@media (prefers-reduced-motion: reduce) { .job .stripes { animation: none } }
 .status { font: 12.5px var(--mono); color: var(--muted); min-height: 1.5em; margin: 0 }
 .status.err { color: var(--bad) }
 .status.ok { color: var(--ok) }
@@ -77,7 +94,6 @@ footer p { margin: 0; max-width: 90ch }
     <section class="card" aria-labelledby="h-models">
       <h2 id="h-models">Models &middot; built in</h2>
       <ul class="rack" id="rack"></ul>
-      <progress id="mprog" max="1" value="0" aria-label="Model download progress"></progress>
       <p class="hint">The models come bundled with this page and load automatically (203&nbsp;MB, cached by your browser after the first visit). They run on this device. Licensed for non-commercial use only.</p>
     </section>
 
@@ -98,7 +114,7 @@ footer p { margin: 0; max-width: 90ch }
   <div class="col">
     <section class="card" aria-labelledby="h-res">
       <h2 id="h-res">Result&nbsp;&middot; drag to compare</h2>
-      <div class="plate" id="plate"><div class="empty">Your result appears here.</div></div>
+      <div class="plate" id="plate"><div class="empty">Your result appears here.</div><div class="busy" id="busy" hidden aria-hidden="true"><b id="busypct">0%</b><span id="busylbl">Working</span></div></div>
       <div class="slider"><label for="quality">Quality</label><select id="quality">
         <option value="1:0">Fast &middot; 128&nbsp;px, no restoration</option>
         <option value="1:1">Balanced &middot; 128&nbsp;px + restoration</option>
@@ -112,6 +128,10 @@ footer p { margin: 0; max-width: 90ch }
         <button class="btn primary" id="swap" disabled>Swap face</button>
         <button class="btn" id="save" disabled>Save PNG</button>
       </div>
+      <div class="job" id="job" hidden>
+        <div class="bar" role="progressbar" aria-labelledby="jobtitle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="jobbar"><div class="fill" id="jobfill"></div><div class="stripes"></div></div>
+        <div class="meta"><span><strong id="jobtitle"></strong> <span id="jobstep"></span></span><span id="jobtime"></span></div>
+      </div>
       <p class="status" id="status" role="status">Loading the built-in models&hellip;</p>
     </section>
   </div>
@@ -123,6 +143,27 @@ footer p { margin: 0; max-width: 90ch }
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.wasm.min.js"></script>
+<script type="text/plain" id="worker-src">
+// Runs ONNX Runtime off the main thread so the page (and its progress bar) stays responsive.
+let sess = {};
+onmessage = async (e) => {
+  const m = e.data;
+  try {
+    if (m.type === "init") {
+      importScripts(m.ortUrl); ort.env.wasm.wasmPaths = m.base; ort.env.wasm.numThreads = 1;
+      postMessage({ id: m.id, ok: true });
+    } else if (m.type === "create") {
+      const s = await ort.InferenceSession.create(m.bytes, m.opts); sess[m.key] = s;
+      postMessage({ id: m.id, ok: true, inputNames: s.inputNames, outputNames: s.outputNames });
+    } else if (m.type === "run") {
+      const feeds = {}; for (const [k, v] of Object.entries(m.feeds)) feeds[k] = new ort.Tensor(v.type, v.data, v.dims);
+      const out = await sess[m.key].run(feeds), res = {}, tr = [];
+      for (const [k, v] of Object.entries(out)) { res[k] = { data: v.data, dims: v.dims }; tr.push(v.data.buffer); }
+      postMessage({ id: m.id, ok: true, res }, tr);
+    }
+  } catch (err) { postMessage({ id: m.id, ok: false, error: String((err && err.message) || err) }); }
+};
+</script>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
@@ -143,7 +184,76 @@ const S = { sess: {}, emap: null, src: null, srcFaces: [], srcIdx: 0, tgt: null,
 ort.env.wasm.wasmPaths = new URL("./", location.href).href;
 ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
 
+// ---- inference backend: a Web Worker when possible (keeps the UI live), else the main thread ----
+const Backend = {
+  worker: null, seq: 0, pending: new Map(),
+  call(msg, transfer = []) {
+    return new Promise((resolve, reject) => { const id = ++this.seq; this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ ...msg, id }, transfer); });
+  },
+  async init() {
+    try {
+      const url = URL.createObjectURL(new Blob([$("worker-src").textContent], { type: "text/javascript" }));
+      this.worker = new Worker(url);
+      this.worker.onmessage = (e) => { const p = this.pending.get(e.data.id); if (!p) return; this.pending.delete(e.data.id);
+        e.data.ok ? p.resolve(e.data) : p.reject(new Error(e.data.error)); };
+      this.worker.onerror = (e) => { for (const p of this.pending.values()) p.reject(new Error(e.message || "worker error")); this.pending.clear(); };
+      await Promise.race([this.call({ type: "init", ortUrl: document.querySelector('script[src*="onnxruntime-web"]').src, base: ort.env.wasm.wasmPaths }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("worker timeout")), 15000))]);
+    } catch (e) { console.warn("Worker unavailable, running models on the page:", e); this.worker?.terminate(); this.worker = null; }
+  },
+  async create(key, bytes, opts) {
+    if (!this.worker) return ort.InferenceSession.create(bytes, opts);
+    const info = await this.call({ type: "create", key, bytes, opts }, [bytes.buffer]);
+    const self = this;
+    return { inputNames: info.inputNames, outputNames: info.outputNames,
+      async run(feeds) {
+        const f = {}, tr = [];
+        for (const [k, v] of Object.entries(feeds)) { const d = v.data.slice(); f[k] = { type: v.type, data: d, dims: v.dims }; tr.push(d.buffer); }
+        return (await self.call({ type: "run", key, feeds: f }, tr)).res;
+      } };
+  },
+};
+
 function status(msg, cls = "") { const s = $("status"); s.textContent = msg; s.className = "status " + cls; }
+// One progress bar for every wait: steps done / total, current step, elapsed and estimated time left.
+const Job = {
+  active: false, timer: null,
+  start(title, total, { overlay = false } = {}) {
+    Object.assign(this, { active: true, title, total: Math.max(total, 1), done: 0, label: "", t0: performance.now(), tLast: performance.now(), overlay });
+    $("job").hidden = false; $("job").classList.remove("done"); $("jobtitle").textContent = title;
+    $("busy").hidden = !overlay; if (overlay) $("plate").setAttribute("aria-busy", "true");
+    status("");
+    clearInterval(this.timer); this.timer = setInterval(() => this.render(), 500); this.render();
+  },
+  step(label) { if (!this.active) return; this.label = label; this.render(); return frame(); },
+  advance(n = 1) { if (!this.active) return; this.done = Math.min(this.total, this.done + n); this.tLast = performance.now(); this.render(); },
+  render() {
+    if (!this.active) return;
+    const now = performance.now(), el = (now - this.t0) / 1000;
+    // Average time per finished unit predicts the rest; the current unit fills in smoothly (capped below the next mark).
+    const per = this.done ? (this.tLast - this.t0) / 1000 / this.done : null, inStep = (now - this.tLast) / 1000;
+    const partial = per ? Math.min(0.9, inStep / per) : 0, shown = Math.min(this.total, this.done + partial);
+    const pct = Math.round(100 * shown / this.total);
+    $("jobfill").style.transform = `scaleX(${shown / this.total})`; $("jobbar").setAttribute("aria-valuenow", pct);
+    $("jobstep").textContent = this.label ? `\u00b7 ${this.label}` : "";
+    const left = per !== null ? Math.max(1, per * (this.total - this.done) - inStep) : null;
+    $("jobtime").textContent = `${pct}% \u00b7 ${fmtS(el)} elapsed` + (this.done >= this.total ? ""
+      : left !== null ? ` \u00b7 about ${fmtS(left)} left` : " \u00b7 estimating time left\u2026");
+    $("busypct").textContent = `${pct}%`; $("busylbl").textContent = this.label || this.title;
+    if (this.overlay) $("swap").textContent = `Working\u2026 ${pct}%`;
+  },
+  finish(msg, cls = "ok") {
+    if (!this.active) { if (msg) status(msg, cls); return; }
+    clearInterval(this.timer); this.done = cls === "ok" ? this.total : this.done; this.render(); this.active = false;
+    $("job").classList.add("done"); $("busy").hidden = true; $("plate").removeAttribute("aria-busy");
+    $("jobstep").textContent = cls === "ok" ? "\u00b7 done" : "\u00b7 stopped";
+    $("jobtime").textContent = `${cls === "ok" ? "100%" : ""} ${fmtS((performance.now() - this.t0) / 1000)} total`.trim();
+    $("swap").textContent = "Swap face";
+    if (msg) status(msg, cls);
+  },
+};
+const fmtS = (s) => s < 60 ? `${Math.max(0, Math.round(s))} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
 const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
 function renderRack(progress = {}) {
@@ -161,11 +271,13 @@ function renderRack(progress = {}) {
 async function loadBundledModels() {
   const progress = {};
   try {
+    await Backend.init();
     const man = await (await fetch("models/manifest.json")).json();
-    const total = Object.values(man).reduce((n, m) => n + m.bytes, 0) + 512 * 512 * 4;
-    let done = 0;
-    const bump = (n) => { done += n; $("mprog").value = done / total;
-      status(`Loading built-in models… ${(done / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB`); };
+    const bytes = Object.values(man).reduce((n, m) => n + m.bytes, 0) + 512 * 512 * 4, START = 8 << 20; // starting a model ~ 8 MB of download time
+    S.loadingModels = true; Job.start("Loading built-in models", bytes + MODELS.length * START);
+    status("First visit downloads the models once; later visits load from your browser cache.");
+    let got = 0, cur = "";
+    const bump = (n) => { got += n; Job.label = `${cur} \u00b7 ${(got / 1048576).toFixed(0)} / ${(bytes / 1048576).toFixed(0)} MB`; Job.advance(n); };
     async function fetchBytes(url) {
       const r = await fetch(url); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
       const rd = r.body.getReader(), chunks = []; let n = 0;
@@ -174,23 +286,24 @@ async function loadBundledModels() {
     }
     S.emap = new Float32Array((await fetchBytes("models/emap.wasm")).buffer);
     for (const m of MODELS) {
-      const info = man[m.key]; progress[m.key] = "downloading"; renderRack(progress);
+      const info = man[m.key]; progress[m.key] = "downloading"; renderRack(progress); cur = `downloading ${m.label}`;
       const buf = new Uint8Array(info.bytes); let o = 0;
       for (const part of info.parts) { const b = await fetchBytes("models/" + part); buf.set(b, o); o += b.length; }
       if (o !== info.bytes) throw new Error(`${m.key}: incomplete download`);
       const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))].map((x) => x.toString(16).padStart(2, "0")).join("");
       if (hash !== info.sha256) throw new Error(`${m.key}: checksum mismatch, reload the page`);
-      progress[m.key] = "starting"; renderRack(progress); await frame();
-      S.sess[m.key] = await ort.InferenceSession.create(buf, { executionProviders: ["wasm"], graphOptimizationLevel: "all",
+      progress[m.key] = "starting"; renderRack(progress); await Job.step(`starting ${m.label}`);
+      S.sess[m.key] = await Backend.create(m.key, buf, { executionProviders: ["wasm"], graphOptimizationLevel: "all",
         extra: { session: { disable_quant_qdq: "1" } } });
-      renderRack(progress);
+      Job.advance(START); renderRack(progress);
     }
-    $("mprog").hidden = true;
-    status("Models ready. Choose a source face and a target photo.", "ok");
-    if (S.src && !S.srcFaces.length) analyzeSource(); if (S.tgt && !S.tgtFaces.length) analyzeTarget();
+    S.loadingModels = false;
+    Job.finish("Models ready. Choose a source face and a target photo.");
+    if (S.src && !S.srcFaces.length) await analyzeSource();
+    if (S.tgt && !S.tgtFaces.length) await analyzeTarget();
   } catch (e) {
     for (const m of MODELS) if (!S.sess[m.key]) progress[m.key] = "error";
-    renderRack(progress); status(`Could not load the built-in models: ${e.message || e}`, "err"); console.error(e);
+    S.loadingModels = false; renderRack(progress); Job.finish(`Could not load the built-in models: ${e.message || e}. Reload the page to try again.`, "err"); console.error(e);
   }
   refresh();
 }
@@ -290,11 +403,12 @@ function pasteBack(out, rgb, size, M, mask, strength) {
   o.setTransform(inv[0], inv[3], inv[1], inv[4], inv[2], inv[5]); o.drawImage(c, 0, 0); o.restore();
 }
 // Pixel boost: crop at 128*b and swap each of the b*b interleaved 128 px sub-grids, giving real detail at 128*b px.
-async function swapOne(base, out, face, lat, boost) {
+async function swapOne(base, out, face, lat, boost, onPart = async () => {}) {
   const size = 128 * boost, M = similarity(face.kps, T.arc128, size), crop = warp(base, M, size);
   const px = crop.getContext("2d").getImageData(0, 0, size, size).data, n = 128 * 128;
   const rgb = new Float32Array(size * size * 3), sess = S.sess.swap, src = new ort.Tensor("float32", lat, [1, 512]);
   for (let bi = 0; bi < boost; bi++) for (let bj = 0; bj < boost; bj++) {
+    await onPart(bi * boost + bj + 1, boost * boost);
     const x = new Float32Array(3 * n);
     for (let y = 0; y < 128; y++) for (let xx = 0; xx < 128; xx++) {
       const p = ((y * boost + bi) * size + (xx * boost + bj)) * 4, k = y * 128 + xx;
@@ -306,6 +420,7 @@ async function swapOne(base, out, face, lat, boost) {
       const q = ((y * boost + bi) * size + (xx * boost + bj)) * 3, k = y * 128 + xx;
       rgb[q] = yv[k] * 255; rgb[q + 1] = yv[n + k] * 255; rgb[q + 2] = yv[2 * n + k] * 255;
     }
+    Job.advance();
   }
   pasteBack(out, rgb, size, M, boxMask(size, $("feather").value / 100), $("blend").value / 100);
 }
@@ -337,30 +452,45 @@ function drawFaces(wrap, canvas, faces, selected, onPick) {
 }
 const modelsReady = () => MODELS.every((m) => S.sess[m.key]);
 async function analyzeSource() {
-  if (!S.src || !modelsReady()) return;
-  try { status("Checking and detecting the source face\u2026"); await frame(); await nsfwCheck(S.src, "source photo");
-    S.srcFaces = await detect(S.src); S.srcIdx = 0;
-    if (!S.srcFaces.length) status("No face found in the source photo. Use a sharp, front-facing, well-lit photo.", "err");
-    else { S.srcFaces[0].emb = await embed(S.src, S.srcFaces[0].kps); status(`Source: ${S.srcFaces.length} face(s); using the largest. Click another to change.`); }
-  } catch (e) { S.srcFaces = []; status(e.message, "err"); }
+  if (!S.src) return;
+  if (!modelsReady()) return; // detection runs automatically once the models have loaded
+  if (!Job.active) Job.start("Preparing source photo", 3);
+  try {
+    await Job.step("checking content"); await nsfwCheck(S.src, "source photo"); Job.advance();
+    await Job.step("finding faces"); S.srcFaces = await detect(S.src); S.srcIdx = 0; Job.advance();
+    if (!S.srcFaces.length) Job.finish("No face found in the source photo. Use a sharp, front-facing, well-lit photo.", "err");
+    else { await Job.step("reading identity"); S.srcFaces[0].emb = await embed(S.src, S.srcFaces[0].kps); Job.advance();
+      Job.finish(`Source ready: ${S.srcFaces.length} face(s), using the largest. Click another to change.`); }
+  } catch (e) { S.srcFaces = []; Job.finish(e.message, "err"); }
   showSource(); refresh();
 }
 function showSource() { if (S.src) drawFaces($("srcwrap"), S.src, S.srcFaces, new Set([S.srcIdx]), async (i) => {
   S.srcIdx = i; if (!S.srcFaces[i].emb) S.srcFaces[i].emb = await embed(S.src, S.srcFaces[i].kps); showSource(); }); }
 async function analyzeTarget() {
-  if (!S.tgt || !modelsReady()) return;
-  try { status("Checking and detecting faces in the target\u2026"); await frame(); await nsfwCheck(S.tgt, "target photo");
-    S.tgtFaces = await detect(S.tgt); S.sel = new Set(S.tgtFaces.length ? [0] : []);
-    status(S.tgtFaces.length ? `Target: ${S.tgtFaces.length} face(s). The largest is selected.` : "No face found in the target photo.", S.tgtFaces.length ? "" : "err");
-  } catch (e) { S.tgtFaces = []; status(e.message, "err"); }
+  if (!S.tgt) return;
+  if (!modelsReady()) return;
+  if (!Job.active) Job.start("Preparing target photo", 3);
+  try {
+    await Job.step("checking content"); await nsfwCheck(S.tgt, "target photo"); Job.advance();
+    await Job.step("finding faces"); S.tgtFaces = await detect(S.tgt); S.sel = new Set(S.tgtFaces.length ? [0] : []); Job.advance();
+    Job.finish(S.tgtFaces.length ? `Target ready: ${S.tgtFaces.length} face(s), the largest is selected. Click faces to change.` : "No face found in the target photo.", S.tgtFaces.length ? "ok" : "err");
+  } catch (e) { S.tgtFaces = []; Job.finish(e.message, "err"); }
   showTarget(); refresh();
 }
 function showTarget() { if (S.tgt) drawFaces($("tgtwrap"), S.tgt, S.tgtFaces, S.sel, (i) => { S.sel.has(i) ? S.sel.delete(i) : S.sel.add(i); showTarget(); refresh(); }); }
 
-$("srcfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f) return; $("srcname").textContent = f.name;
-  S.src = await fileToCanvas(f); S.srcFaces = []; showSource(); await analyzeSource(); });
-$("tgtfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f) return; $("tgtname").textContent = f.name;
-  S.tgt = await fileToCanvas(f); S.tgtFaces = []; S.result = null; showTarget(); showResult(); await analyzeTarget(); });
+async function openPhoto(file, title) {
+  if (S.loadingModels) { try { return await fileToCanvas(file); } catch (e) { status(`Could not open ${file.name}: it is not a supported image.`, "err"); return null; } }
+  Job.start(title, 4); await Job.step("opening photo");
+  try { const c = await fileToCanvas(file); Job.advance(); return c; }
+  catch (e) { Job.finish(`Could not open ${file.name}: it is not a supported image.`, "err"); return null; }
+}
+$("srcfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f || S.busy) return; $("srcname").textContent = f.name;
+  S.busy = true; refresh(); const c = await openPhoto(f, "Preparing source photo");
+  if (c) { S.src = c; S.srcFaces = []; showSource(); if (!S.loadingModels) Job.total = 4; await analyzeSource(); } S.busy = false; refresh(); });
+$("tgtfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f || S.busy) return; $("tgtname").textContent = f.name;
+  S.busy = true; refresh(); const c = await openPhoto(f, "Preparing target photo");
+  if (c) { S.tgt = c; S.tgtFaces = []; S.result = null; showTarget(); showResult(); if (!S.loadingModels) Job.total = 3; await analyzeTarget(); } S.busy = false; refresh(); });
 
 function refresh() {
   $("swap").disabled = S.busy || !(modelsReady() && S.srcFaces.length && S.tgtFaces.length && S.sel.size && $("consent").checked);
@@ -370,22 +500,31 @@ function refresh() {
 for (const id of ["blend", "feather", "enhance"]) $(id).addEventListener("input", () => { $(id + "v").textContent = ($(id).value / 100).toFixed(2); });
 
 $("swap").addEventListener("click", async () => {
-  S.busy = true; refresh(); const t0 = performance.now();
+  S.busy = true; refresh();
+  const src = S.srcFaces[S.srcIdx], [boost, restore] = $("quality").value.split(":").map(Number);
+  const nf = S.sel.size, RESTORE = 0.25, perFace = boost * boost + (restore ? RESTORE : 0);  // measured: restoration ~ 1/4 of a swap pass
+  if (!S.result) { const v = document.createElement("canvas"); v.width = S.tgt.width; v.height = S.tgt.height; v.getContext("2d").drawImage(S.tgt, 0, 0); setPlate(v); }
+  Job.start("Swapping", (src.emb ? 0 : 1) + nf * perFace, { overlay: true });
   try {
-    const src = S.srcFaces[S.srcIdx]; if (!src.emb) src.emb = await embed(S.src, src.kps);
+    if (!src.emb) { await Job.step("reading source identity"); src.emb = await embed(S.src, src.kps); Job.advance(); }
     const lat = latent(src.emb), out = document.createElement("canvas"); out.width = S.tgt.width; out.height = S.tgt.height;
     out.getContext("2d").drawImage(S.tgt, 0, 0);
-    const [boost, restore] = $("quality").value.split(":").map(Number);
-    let k = 0; for (const i of S.sel) { status(`Swapping face ${++k} of ${S.sel.size}\u2026`); await frame(); await swapOne(S.tgt, out, S.tgtFaces[i], lat, boost);
-      if (restore) { status(`Restoring detail on face ${k}\u2026`); await frame(); await restoreOne(out, S.tgtFaces[i], $("enhance").value / 100); } }
-    S.result = out; showResult(); status(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s. Drag the image to compare before and after.`, "ok");
-  } catch (e) { status(`Swap failed: ${e.message || e}`, "err"); console.error(e); }
+    let k = 0;
+    for (const i of S.sel) {
+      k++;
+      await swapOne(S.tgt, out, S.tgtFaces[i], lat, boost, (p, n) => Job.step(`face ${k} of ${nf}: swapping${n > 1 ? ` part ${p}/${n}` : ""}`));
+      if (restore) { await Job.step(`face ${k} of ${nf}: restoring detail`); await restoreOne(out, S.tgtFaces[i], $("enhance").value / 100); Job.advance(RESTORE); }
+    }
+    S.result = out; showResult();
+    Job.finish("Done. Drag the image to compare before and after, then Save PNG.");
+  } catch (e) { Job.finish(`Swap failed: ${e.message || e}`, "err"); console.error(e); }
   S.busy = false; refresh();
 });
 
+function setPlate(...nodes) { const p = $("plate"), busy = $("busy"); p.replaceChildren(...nodes, busy); }
 function showResult() {
   const plate = $("plate");
-  if (!S.result) { plate.replaceChildren(Object.assign(document.createElement("div"), { className: "empty", textContent: "Your result appears here." })); return; }
+  if (!S.result) { setPlate(Object.assign(document.createElement("div"), { className: "empty", textContent: "Your result appears here." })); return; }
   const v = document.createElement("canvas"); v.id = "resultCanvas"; v.width = S.result.width; v.height = S.result.height;
   const draw = () => { const g = v.getContext("2d"), sx = Math.round(v.width * S.split); g.drawImage(S.result, 0, 0);
     g.drawImage(S.tgt, 0, 0, sx, v.height, 0, 0, sx, v.height); g.fillStyle = "#fff"; g.fillRect(sx - 1, 0, 2, v.height); };
@@ -394,7 +533,7 @@ function showResult() {
   v.addEventListener("pointermove", (e) => { if (e.buttons) move(e); });
   draw(); const b = Object.assign(document.createElement("span"), { className: "tag", textContent: "BEFORE" }); b.style.left = "8px";
   const a = Object.assign(document.createElement("span"), { className: "tag", textContent: "AFTER" }); a.style.right = "8px";
-  plate.replaceChildren(v, b, a);
+  setPlate(v, b, a);
 }
 
 $("save").addEventListener("click", async () => {
@@ -407,7 +546,7 @@ $("save").addEventListener("click", async () => {
     catch (e) { status("Save was cancelled.", ""); }
   } else {
     const url = URL.createObjectURL(blob); const img = new Image(); img.src = url; img.style.maxWidth = "100%";
-    $("plate").replaceChildren(img); status("Saving files isn't available here. Right-click or long-press the labelled image to save it.");
+    setPlate(img); status("Saving files isn't available here. Right-click or long-press the labelled image to save it.");
   }
 });
 
