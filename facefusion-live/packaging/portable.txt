@@ -1,0 +1,4 @@
+FaceFusion Live — portable mode.
+While this file sits next to FaceFusionLive.exe, settings, logs and downloaded models are stored in the
+"data" folder beside it, and nothing is written to the system. Delete the folder to remove everything.
+Just double-click FaceFusionLive.exe — no installation required.

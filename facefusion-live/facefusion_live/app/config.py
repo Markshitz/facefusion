@@ -20,6 +20,9 @@ def app_home() -> Path:
     env = os.environ.get("FFL_HOME")
     if env:
         return Path(env)
+    exe_dir = Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False) and (exe_dir / "portable.txt").exists():
+        return exe_dir / "data"  # portable mode: settings, logs and models stay next to the exe
     if sys.platform == "win32":
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
         return base / "FaceFusionLive"

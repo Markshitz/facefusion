@@ -17,6 +17,14 @@ All three modes share one engine (`core/engine.py`). Video and live modes also s
 
 ---
 
+## Run without installing (portable, Windows)
+
+Download the `FaceFusionLive-directml-portable` (or `-cuda-portable`) artifact, extract it anywhere (USB stick
+included) and double-click `FaceFusionLive\FaceFusionLive.exe`. Because `portable.txt` sits next to the exe,
+settings, logs and models are kept in `FaceFusionLive\data\`, and nothing is written elsewhere on the system.
+Delete the folder to remove everything. To skip the download prompt, you can copy existing `.onnx` files into
+`data\models\`.
+
 ## Install (Windows, no Python needed)
 
 1. Download `FaceFusionLive-<version>-directml-setup.exe` (works on NVIDIA, AMD and Intel GPUs through DirectML),

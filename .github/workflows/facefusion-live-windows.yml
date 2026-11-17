@@ -109,6 +109,34 @@ jobs:
           if (Test-Path $exe) { Write-Error "uninstall failed"; exit 1 }
           Write-Host "Install / launch / uninstall OK"
 
+      - name: Portable build (no installation) — extract-and-run test
+        shell: pwsh
+        working-directory: facefusion-live
+        run: |
+          New-Item -ItemType Directory -Force dist\portable | Out-Null
+          Copy-Item -Recurse -Force dist\FaceFusionLive dist\portable\FaceFusionLive
+          Copy-Item packaging\portable.txt dist\portable\FaceFusionLive\portable.txt
+          Compress-Archive -Path dist\portable\FaceFusionLive -DestinationPath dist\FaceFusionLive-portable.zip -Force
+          # simulate a fresh PC: unzip somewhere else, no env overrides, models placed in the portable data folder
+          $t = Join-Path $env:RUNNER_TEMP "portable_test"
+          Expand-Archive dist\FaceFusionLive-portable.zip -DestinationPath $t -Force
+          $app = Join-Path $t "FaceFusionLive"
+          New-Item -ItemType Directory -Force "$app\data\models" | Out-Null
+          Copy-Item "$env:FFL_MODELS_DIR\*.onnx" "$app\data\models\"
+          Remove-Item Env:FFL_MODELS_DIR, Env:FFL_HOME -ErrorAction SilentlyContinue
+          $p = Start-Process "$app\FaceFusionLive.exe" -ArgumentList "selftest","--image","$env:FFL_TEST_MEDIA\t1.jpg","--report","$PWD\portable.txt.log" -Wait -PassThru
+          Get-Content portable.txt.log
+          if ($p.ExitCode -ne 0 -or -not (Select-String -Path portable.txt.log -Pattern "Swap OK")) { exit 1 }
+          if (-not (Test-Path "$app\data\config.json") -and -not (Test-Path "$app\data\logs")) { Write-Error "portable data dir not used"; exit 1 }
+          if (Test-Path "$env:LOCALAPPDATA\FaceFusionLive\logs\ffl.log") { Write-Host "note: LOCALAPPDATA log exists from earlier steps" }
+          Write-Host "Portable extract-and-run OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FaceFusionLive-${{ matrix.flavor }}-portable
+          path: facefusion-live/dist/portable
+          retention-days: 14
+
       - uses: actions/upload-artifact@v4
         with:
           name: FaceFusionLive-${{ matrix.flavor }}-setup
