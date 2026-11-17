@@ -31,6 +31,8 @@ h1 small { font: 500 12px var(--mono); color: var(--muted); margin-left: 8px; le
 .activity { gap: 6px }
 .activity:has(#job[hidden]) .status:empty { display: none }
 .plate.live { min-height: 300px; background: #000 }
+#vidplate { background: #000; min-height: 260px }
+#vidplate canvas, #vidplate video { width: 100%; max-height: 62vh; object-fit: contain; display: block }
 .plate.live canvas { width: 100%; max-height: 70vh; object-fit: contain }
 .getapp { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; color: var(--muted) }
 .getapp strong { color: var(--fg) }
@@ -103,6 +105,7 @@ footer p { margin: 0; max-width: 90ch }
   <p class="lede">Swap a face onto a photo or your live webcam. Nothing is uploaded: the models, photos and video stay on this device.</p>
   <nav class="tabs" role="tablist" aria-label="Mode">
     <button role="tab" id="tab-photo" aria-selected="true" aria-controls="photo-panel">Photo swap</button>
+    <button role="tab" id="tab-video" aria-selected="false" aria-controls="video-panel">Video swap</button>
     <button role="tab" id="tab-live" aria-selected="false" aria-controls="live-panel">Live webcam</button>
   </nav>
 </header>
@@ -156,6 +159,29 @@ footer p { margin: 0; max-width: 90ch }
       </div>
     </section>
 
+    <section class="card video-only" id="video-panel" role="tabpanel" aria-labelledby="h-video" hidden>
+      <h2 id="h-video">Video swap&nbsp;&middot; with original sound</h2>
+      <label class="file" for="vidfile"><input id="vidfile" type="file" accept="video/*"><strong>Choose video&hellip;</strong><span id="vidname">MP4, MOV or WebM</span></label>
+      <div class="plate" id="vidplate"><div class="empty" id="videmmpty">Choose a video. Its first frame appears here so you can pick who to replace.</div>
+        <canvas id="vidcanvas" hidden></canvas><video id="vidplayer" controls playsinline hidden></video></div>
+      <p class="hint" id="vidinfo">Click a face in the preview to choose who to replace (several allowed). With none chosen, the largest face in each frame is replaced.</p>
+      <div class="slider"><label for="vidquality">Quality</label><select id="vidquality">
+        <option value="1:0">Fast &middot; 128&nbsp;px, no restoration</option>
+        <option value="1:1" selected>Balanced &middot; 128&nbsp;px + restoration</option>
+        <option value="2:1">High &middot; 256&nbsp;px + restoration (slow)</option></select><span></span></div>
+      <div class="slider"><label for="vidlen">Process</label><select id="vidlen">
+        <option value="5">First 5 seconds</option><option value="10" selected>First 10 seconds</option>
+        <option value="30">First 30 seconds</option><option value="0">Whole video</option></select><span></span></div>
+      <p class="hint" id="videstimate"></p>
+      <label class="consent"><input id="vidconsent" type="checkbox"> <span>I have the consent of every person whose face is used or replaced. The video carries a visible "AI-generated" label.</span></label>
+      <div class="row">
+        <button class="btn primary" id="vidstart" disabled>Process video</button>
+        <button class="btn" id="vidcancel" disabled>Cancel</button>
+        <button class="btn" id="vidsave" disabled>Save MP4</button>
+      </div>
+      <p class="status" id="vidmsg" role="status"></p>
+    </section>
+
     <section class="card live-only" id="live-panel" role="tabpanel" aria-labelledby="h-live" hidden>
       <h2 id="h-live">Live webcam&nbsp;&middot; real-time swap</h2>
       <div class="plate live" id="liveplate"><div class="empty" id="liveempty">Choose a source face, tick consent and press Start camera.</div>
@@ -189,6 +215,7 @@ footer p { margin: 0; max-width: 90ch }
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.wasm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.1/build/mp4-muxer.js"></script>
 <script type="text/plain" id="worker-src">
 // Runs ONNX Runtime off the main thread so the page (and its progress bar) stays responsive.
 let sess = {};
@@ -593,6 +620,7 @@ $("tgtfile").addEventListener("change", async (e) => { const f = e.target.files[
 
 function refresh() {
   if (typeof refreshLive === "function" && $("livestart")) refreshLive();
+  if (typeof vidRefresh === "function" && $("vidstart")) vidRefresh();
   $("swap").disabled = S.busy || !(modelsReady() && S.srcFaces.length && S.tgtFaces.length && S.sel.size && $("consent").checked);
   $("save").disabled = S.busy || !S.result;
 }
@@ -653,15 +681,17 @@ $("save").addEventListener("click", async () => {
 // ---- tabs ----
 function setMode(mode) {
   const live = mode === "live";
-  $("tab-photo").setAttribute("aria-selected", String(!live)); $("tab-live").setAttribute("aria-selected", String(live));
-  document.querySelectorAll(".photo-only").forEach((e) => (e.hidden = live));
-  document.querySelectorAll(".live-only").forEach((e) => (e.hidden = !live));
+  for (const m of ["photo", "video", "live"]) {
+    $("tab-" + m).setAttribute("aria-selected", String(m === mode));
+    document.querySelectorAll(`.${m}-only`).forEach((e) => (e.hidden = m !== mode));
+  }
   if (!live && L.running) stopLive();
   try { localStorage.setItem("ffl-mode", mode); } catch (e) {}
   refreshLive();
 }
 $("tab-photo").addEventListener("click", () => setMode("photo"));
 $("tab-live").addEventListener("click", () => setMode("live"));
+$("tab-video").addEventListener("click", () => setMode("video"));
 
 // ---- live webcam ----
 const L = { running: false, stream: null, video: null, frames: 0, t0: 0, fps: 0, lat: 0, last: [], bypass: false, lastCheck: 0 };
@@ -772,8 +802,263 @@ async function liveLoop() {
     await frame();
   }
 }
+// ---- video swap ----
+const V = { file: null, url: null, el: null, w: 0, h: 0, fps: 30, dur: 0, faces: [], sel: new Set(), refs: [], busy: false, cancel: false, result: null, hasAudio: false };
+const vidEl = () => V.el;
+function waitEvent(el, name, ms = 15000) {
+  return new Promise((res, rej) => { const t = setTimeout(() => { el.removeEventListener(name, on); rej(new Error(`video ${name} timed out`)); }, ms);
+    function on() { clearTimeout(t); el.removeEventListener(name, on); res(); } el.addEventListener(name, on); });
+}
+async function seekTo(t) {
+  const v = vidEl(); if (Math.abs(v.currentTime - t) < 1e-4 && v.readyState >= 2) return;
+  const p = waitEvent(v, "seeked"); v.currentTime = t; await p;
+}
+// Exact frame rate and frame count from an MP4/MOV container (video track's mdhd timescale + stts table).
+async function mp4VideoTiming(file) {
+  const b = new DataView(await file.arrayBuffer());
+  const type = (o) => String.fromCharCode(b.getUint8(o + 4), b.getUint8(o + 5), b.getUint8(o + 6), b.getUint8(o + 7));
+  function* boxes(start, end) {
+    for (let o = start; o + 8 <= end;) {
+      let size = b.getUint32(o), hdr = 8;
+      if (size === 1) { size = Number(b.getBigUint64(o + 8)); hdr = 16; } else if (size === 0) size = end - o;
+      if (size < hdr) return;
+      yield { o, size, hdr, t: type(o) }; o += size;
+    }
+  }
+  const find = (start, end, t) => { for (const x of boxes(start, end)) if (x.t === t) return x; return null; };
+  const moov = find(0, b.byteLength, "moov"); if (!moov) return null;
+  for (const trak of boxes(moov.o + moov.hdr, moov.o + moov.size)) {
+    if (trak.t !== "trak") continue;
+    const mdia = find(trak.o + 8, trak.o + trak.size, "mdia"); if (!mdia) continue;
+    const hdlr = find(mdia.o + 8, mdia.o + mdia.size, "hdlr"); if (!hdlr || type(hdlr.o + 8 + 4) !== "vide") continue;
+    const mdhd = find(mdia.o + 8, mdia.o + mdia.size, "mdhd"); const v = b.getUint8(mdhd.o + 8);
+    const timescale = b.getUint32(mdhd.o + 8 + (v === 1 ? 20 : 12));
+    const minf = find(mdia.o + 8, mdia.o + mdia.size, "minf"), stbl = minf && find(minf.o + 8, minf.o + minf.size, "stbl");
+    const stts = stbl && find(stbl.o + 8, stbl.o + stbl.size, "stts"); if (!stts) return null;
+    const n = b.getUint32(stts.o + 12); let frames = 0, best = 0, bestDelta = 0;
+    for (let k = 0; k < n; k++) { const c = b.getUint32(stts.o + 16 + k * 8), d = b.getUint32(stts.o + 20 + k * 8); frames += c; if (c > best) { best = c; bestDelta = d; } }
+    if (!bestDelta) return null;
+    return { fps: Math.round(timescale / bestDelta * 1000) / 1000, frames };
+  }
+  return null;
+}
+// Frame rate fallback (WebM etc.): watch presented frames for a moment (requestVideoFrameCallback), fall back to 30.
+async function measureFps(v) {
+  if (!("requestVideoFrameCallback" in HTMLVideoElement.prototype)) return 30;
+  const times = [];
+  await new Promise((res) => {
+    const stop = setTimeout(res, 1500);
+    const cb = (_, meta) => { times.push(meta.mediaTime); if (times.length < 14) v.requestVideoFrameCallback(cb); else { clearTimeout(stop); res(); } };
+    v.requestVideoFrameCallback(cb); v.playbackRate = 1; v.play().catch(() => res());
+  });
+  v.pause();
+  const d = times.slice(1).map((t, i) => t - times[i]).filter((x) => x > 0.001).sort((a, b) => a - b);
+  if (!d.length) return 30;
+  const fps = 1 / d[Math.floor(d.length / 2)];
+  const common = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60];
+  return common.reduce((best, c) => Math.abs(c - fps) < Math.abs(best - fps) ? c : best, common[0]);
+}
+function vidRefresh() {
+  const ready = modelsReady() && S.srcFaces.length && V.el && $("vidconsent").checked && !V.busy;
+  $("vidstart").disabled = !ready; $("vidcancel").disabled = !V.busy; $("vidsave").disabled = V.busy || !V.result;
+  if (V.el && V.dur) {
+    const secs = Number($("vidlen").value) ? Math.min(Number($("vidlen").value), V.dur) : V.dur, n = Math.round(secs * V.fps);
+    $("videstimate").textContent = `${n} frames to process (${secs.toFixed(1)} s at ${V.fps} fps). In the browser each frame takes a few seconds; the bar shows the time left once it starts. For long videos the Windows app is much faster.`;
+  }
+  if (!V.busy && !$("vidmsg").classList.contains("err")) $("vidmsg").textContent = !modelsReady() ? "Waiting for the models to finish loading…"
+    : !S.srcFaces.length ? "Choose a source face photo first (left)." : !V.el ? "Choose a video." : !$("vidconsent").checked ? "Tick the consent box to enable processing." : "";
+}
+["vidconsent", "vidlen", "vidquality"].forEach((id) => $(id).addEventListener("change", () => { $("vidmsg").className = "status"; vidRefresh(); }));
+
+function drawVidPreview(canvas, faces) {
+  const c = $("vidcanvas"); c.width = canvas.width; c.height = canvas.height;
+  const g = c.getContext("2d"); g.drawImage(canvas, 0, 0); const lw = Math.max(2, c.width / 300);
+  faces.forEach((f, i) => { const on = V.sel.has(i); g.lineWidth = on ? lw * 1.8 : lw; g.strokeStyle = on ? "#22c55e" : "#60a5fa";
+    g.strokeRect(f.box[0], f.box[1], f.box[2] - f.box[0], f.box[3] - f.box[1]); });
+  $("vidplayer").hidden = true; c.hidden = false; $("videmmpty").hidden = true;
+}
+$("vidcanvas").addEventListener("click", (e) => {
+  if (V.busy || !V.faces.length || !V.preview) return;
+  const c = $("vidcanvas"), r = c.getBoundingClientRect();
+  // object-fit: contain -> map the click into canvas pixels
+  const s = Math.min(r.width / c.width, r.height / c.height), ox = (r.width - c.width * s) / 2, oy = (r.height - c.height * s) / 2;
+  const x = (e.clientX - r.left - ox) / s, y = (e.clientY - r.top - oy) / s;
+  const i = V.faces.findIndex((f) => x >= f.box[0] && x <= f.box[2] && y >= f.box[1] && y <= f.box[3]);
+  if (i < 0) return;
+  V.sel.has(i) ? V.sel.delete(i) : V.sel.add(i);
+  drawVidPreview(V.preview, V.faces);
+  $("vidinfo").textContent = V.sel.size ? `Replacing ${V.sel.size} chosen ${V.sel.size > 1 ? "people" : "person"} throughout the video; others stay untouched.` : "No face chosen: the largest face in each frame is replaced. Click faces to choose.";
+});
+
+$("vidfile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f || V.busy) return;
+  $("vidname").textContent = f.name; $("vidmsg").className = "status"; $("vidmsg").textContent = "Opening video…";
+  if (V.url) URL.revokeObjectURL(V.url);
+  Object.assign(V, { file: f, url: URL.createObjectURL(f), faces: [], sel: new Set(), refs: [], result: null });
+  const v = Object.assign(document.createElement("video"), { muted: true, playsInline: true, preload: "auto", src: V.url });
+  try {
+    await waitEvent(v, "loadeddata", 20000);
+    V.el = v; V.w = v.videoWidth & ~1; V.h = v.videoHeight & ~1; V.dur = v.duration;
+    const timing = await mp4VideoTiming(f).catch(() => null);
+    V.fps = timing?.fps || await measureFps(v);
+    await seekTo(Math.min(0.5, V.dur / 2));
+    const c = document.createElement("canvas"); c.width = V.w; c.height = V.h; c.getContext("2d").drawImage(v, 0, 0, V.w, V.h);
+    V.preview = c;
+    if (modelsReady()) { await nsfwCheck(c, "video"); V.faces = await detect(c, 640); }
+    drawVidPreview(c, V.faces);
+    $("vidinfo").textContent = `${V.w}×${V.h}, ${V.fps} fps, ${V.dur.toFixed(1)} s. ` + (V.faces.length
+      ? `${V.faces.length} face(s) in this frame. Click to choose who to replace; with none chosen, the largest face is replaced.` : "No face in this frame; the largest face in each frame will be replaced.");
+    $("vidmsg").textContent = "";
+  } catch (err) {
+    V.el = null; $("vidmsg").textContent = `Could not open this video: ${err.message || err}. Try an MP4 (H.264) file.`; $("vidmsg").className = "status err";
+  }
+  vidRefresh();
+});
+
+async function pickEncoder(w, h, fps) {
+  const bitrate = Math.round(Math.min(20e6, Math.max(2e6, w * h * fps * 0.12)));
+  for (const [codec, mux] of [["avc1.640033", "avc"], ["avc1.640028", "avc"], ["avc1.4d0028", "avc"], ["avc1.42001f", "avc"], ["vp09.00.40.08", "vp9"]]) {
+    const cfg = { codec, width: w, height: h, bitrate, framerate: fps, latencyMode: "quality", ...(mux === "avc" ? { avc: { format: "avc" } } : {}) };
+    try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return { cfg, mux }; } catch (e) {}
+  }
+  throw new Error("This browser can't encode video (no H.264/VP9 encoder).");
+}
+async function decodeAudio(file, start, secs) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+    const buf = await ctx.decodeAudioData(await file.arrayBuffer()); ctx.close();
+    const a = Math.floor(start * buf.sampleRate), b = Math.min(buf.length, Math.floor((start + secs) * buf.sampleRate));
+    if (b <= a) return null;
+    return { sampleRate: buf.sampleRate, channels: Math.min(2, buf.numberOfChannels),
+      data: [...Array(Math.min(2, buf.numberOfChannels)).keys()].map((ch) => buf.getChannelData(ch).subarray(a, b)) };
+  } catch (e) { return null; }  // no audio track, or the browser can't decode it
+}
+async function pickAudio(sr, ch) {
+  for (const [codec, mux] of [["mp4a.40.2", "aac"], ["opus", "opus"]]) {
+    const cfg = { codec, sampleRate: sr, numberOfChannels: ch, bitrate: 160000 };
+    try { if ((await AudioEncoder.isConfigSupported(cfg)).supported) return { cfg, mux }; } catch (e) {}
+  }
+  return null;
+}
+
+$("vidcancel").addEventListener("click", () => { V.cancel = true; $("vidmsg").textContent = "Stopping…"; });
+$("vidstart").addEventListener("click", processVideo);
+async function processVideo() {
+  if (!window.VideoEncoder || !window.Mp4Muxer) { $("vidmsg").textContent = "This browser can't create videos here (needs Chrome, Edge or a recent Firefox/Safari)."; $("vidmsg").className = "status err"; return; }
+  V.busy = true; V.cancel = false; V.result = null; vidRefresh(); refresh();
+  const [boost, restore] = $("vidquality").value.split(":").map(Number);
+  const secs = Number($("vidlen").value) ? Math.min(Number($("vidlen").value), V.dur) : V.dur;
+  const n = Math.max(1, Math.round(secs * V.fps)), W = V.w, H = V.h, fps = V.fps;
+  const grab = document.createElement("canvas"); grab.width = W; grab.height = H; const gctx = grab.getContext("2d", { willReadFrequently: true });
+  let encoder, aenc;
+  try {
+    // identity references for the chosen people
+    const src = S.srcFaces[S.srcIdx]; if (!src.emb) src.emb = await embed(S.src, src.kps); const lat = latent(src.emb);
+    V.refs = [];
+    for (const i of V.sel) V.refs.push(await embed(V.preview, V.faces[i].kps));
+    const { cfg, mux } = await pickEncoder(W, H, fps);
+    const audio = await decodeAudio(V.file, 0, secs), ainfo = audio ? await pickAudio(audio.sampleRate, audio.channels) : null;
+    const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), fastStart: "in-memory", firstTimestampBehavior: "offset",
+      video: { codec: mux, width: W, height: H, frameRate: Math.max(1, Math.round(fps)) },  // header only; timestamps stay exact
+      ...(ainfo ? { audio: { codec: ainfo.mux, numberOfChannels: audio.channels, sampleRate: audio.sampleRate } } : {}) });
+    let encErr = null;
+    encoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => (encErr = e) });
+    encoder.configure(cfg);
+    const per = 1 + boost * boost + (restore ? 0.25 : 0);  // detection+tracking, swap passes, restoration
+    Job.start("Processing video", n * per);
+    const tracks = [];  // {box, ref, lastEmbed}
+    for (let i = 0; i < n; i++) {
+      if (V.cancel) throw new Error("cancelled");
+      if (encErr) throw encErr;
+      await Job.step(`frame ${i + 1} of ${n}: finding faces`);
+      await seekTo(Math.min(V.dur - 0.001, (i + 0.5) / fps));
+      gctx.drawImage(V.el, 0, 0, W, H);
+      if (i % Math.max(1, Math.round(fps * 2)) === 0) await nsfwCheck(grab, "video");
+      const faces = smoothVidFaces(await detect(grab, 480), tracks);
+      let targets;
+      if (V.refs.length) {
+        targets = [];
+        for (const f of faces) {
+          let t = tracks.find((t) => t.face === f);
+          if (t.ref === undefined || i - t.lastEmbed >= 15) {  // identity check for new tracks and every 15 frames
+            const e = await embed(grab, f.kps); let best = -1, bi = -1;
+            V.refs.forEach((r, k) => { const s = r.reduce((a, v, j) => a + v * e[j], 0); if (s > best) { best = s; bi = k; } });
+            t.ref = best > 0.35 ? bi : null; t.lastEmbed = i;
+          }
+          if (t.ref !== null) targets.push(f);
+        }
+      } else targets = faces.slice(0, 1);
+      Job.advance(1);
+      const out = document.createElement("canvas"); out.width = W; out.height = H; out.getContext("2d").drawImage(grab, 0, 0);
+      for (const f of targets) {
+        await swapOne(grab, out, f, lat, boost, (p, m) => Job.step(`frame ${i + 1} of ${n}: swapping${m > 1 ? ` part ${p}/${m}` : ""}`));
+        if (restore) { await Job.step(`frame ${i + 1} of ${n}: restoring detail`); await restoreOne(out, f, 0.7); }
+      }
+      if (!targets.length) Job.advance(boost * boost);
+      if (restore) Job.advance(0.25);
+      label(out);
+      const frame = new VideoFrame(out, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      encoder.encode(frame, { keyFrame: i % Math.max(1, Math.round(fps * 2)) === 0 }); frame.close();
+      while (encoder.encodeQueueSize > 4) await new Promise((r) => setTimeout(r, 5));
+      if (i % 3 === 0 || i === n - 1) drawVidPreview(out, []);
+    }
+    await encoder.flush();
+    if (ainfo) {
+      let aerr = null;
+      aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => (aerr = e) });
+      aenc.configure(ainfo.cfg);
+      const len = audio.data[0].length, step = 4096;
+      for (let o = 0; o < len; o += step) {
+        const m = Math.min(step, len - o), planar = new Float32Array(m * audio.channels);
+        for (let c = 0; c < audio.channels; c++) planar.set(audio.data[c].subarray(o, o + m), c * m);
+        const ad = new AudioData({ format: "f32-planar", sampleRate: audio.sampleRate, numberOfFrames: m, numberOfChannels: audio.channels,
+          timestamp: Math.round(o * 1e6 / audio.sampleRate), data: planar });
+        aenc.encode(ad); ad.close();
+      }
+      await aenc.flush(); if (aerr) throw aerr;
+    }
+    muxer.finalize();
+    V.result = new Blob([muxer.target.buffer], { type: "video/mp4" });
+    const pl = $("vidplayer"); if (pl.src) URL.revokeObjectURL(pl.src);
+    pl.src = URL.createObjectURL(V.result); pl.hidden = false; $("vidcanvas").hidden = true;
+    Job.finish(`Video ready: ${n} frames, ${(V.result.size / 1048576).toFixed(1)} MB, ${ainfo ? "with the original sound" : "no sound track"}. Press Save MP4.`);
+  } catch (err) {
+    try { encoder && encoder.state !== "closed" && encoder.close(); } catch (e) {}
+    try { aenc && aenc.state !== "closed" && aenc.close(); } catch (e) {}
+    const cancelled = V.cancel || String(err && err.message) === "cancelled";
+    Job.finish(cancelled ? "Video processing cancelled." : `Video processing failed: ${(err && err.message) || err}`, cancelled ? "" : "err");
+    if (!cancelled) { $("vidmsg").textContent = `${(err && err.message) || err}`; $("vidmsg").className = "status err"; }
+    console.error(err);
+  }
+  V.busy = false; V.cancel = false; vidRefresh(); refresh();
+}
+// Track faces across frames by overlap and smooth their landmarks (less jitter, steady identity checks).
+function smoothVidFaces(faces, tracks) {
+  const used = new Set(), out = [];
+  for (const f of faces) {
+    let t = tracks.find((t) => !used.has(t) && iou(t.box, f.box) > 0.3);
+    let g = f;
+    if (t) {
+      const size = f.box[2] - f.box[0], move = Math.hypot(f.kps[2][0] - t.kps[2][0], f.kps[2][1] - t.kps[2][1]) / size, a = Math.min(1, 0.4 + move * 6);
+      g = { ...f, kps: f.kps.map((k, j) => [t.kps[j][0] + (k[0] - t.kps[j][0]) * a, t.kps[j][1] + (k[1] - t.kps[j][1]) * a]) };
+      Object.assign(t, { box: g.box, kps: g.kps, face: g });
+    } else { t = { box: f.box, kps: f.kps, face: g, ref: undefined, lastEmbed: -99 }; tracks.push(t); }
+    used.add(t); out.push(g);
+  }
+  for (let k = tracks.length - 1; k >= 0; k--) if (!used.has(tracks[k])) tracks.splice(k, 1);
+  return out;
+}
+$("vidsave").addEventListener("click", async () => {
+  if (!V.result) return;
+  const name = (V.file?.name || "video").replace(/\.[^.]+$/, "") + "-faceswap-ai-generated.mp4";
+  const dl = window.claude ? await window.claude.use("downloads").catch(() => null) : null;
+  if (dl) { try { await dl.save({ filename: name, data: V.result }); $("vidmsg").textContent = "Saved."; } catch (e) { $("vidmsg").textContent = "Save was cancelled."; } }
+  else { const a = Object.assign(document.createElement("a"), { href: $("vidplayer").src, download: name }); document.body.appendChild(a); a.click(); a.remove();
+    $("vidmsg").textContent = "If no download started, use the player's ⋮ menu → Download."; }
+});
+
 window.addEventListener("pagehide", () => { if (L.running) stopLive(); });
 
 renderRack(); refresh(); loadBundledModels();
-try { if (localStorage.getItem("ffl-mode") === "live") setMode("live"); } catch (e) {}
+try { const m = localStorage.getItem("ffl-mode"); if (m === "live" || m === "video") setMode(m); } catch (e) {}
 </script>
