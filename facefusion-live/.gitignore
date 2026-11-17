@@ -7,3 +7,4 @@ packaging/ffmpeg/
 *.emap.npy
 selftest.txt
 installed.txt
+web/ort-wasm-simd-threaded.*

@@ -25,6 +25,13 @@ settings, logs and models are kept in `FaceFusionLive\data\`, and nothing is wri
 Delete the folder to remove everything. To skip the download prompt, you can copy existing `.onnx` files into
 `data\models\`.
 
+## Run in a browser (no installation, image swap)
+
+`web/index.html` runs the same SCRFD → ArcFace → inswapper pipeline with ONNX Runtime Web (WebAssembly).
+You download the four `.onnx` models once and load them from disk; nothing is uploaded. It is published as a
+claude.ai artifact, or you can run `web/fetch_runtime.sh` and serve the folder locally. Webcam and video need the
+desktop or portable build, because artifacts cannot access the camera and the page can't keep audio.
+
 ## Install (Windows, no Python needed)
 
 1. Download `FaceFusionLive-<version>-directml-setup.exe` (works on NVIDIA, AMD and Intel GPUs through DirectML),

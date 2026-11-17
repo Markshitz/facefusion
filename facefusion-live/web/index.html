@@ -1,0 +1,389 @@
+<title>FaceFusion Live Web</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a bench — model rack + inputs on the left, the result plate on the right; stacks on phones */
+:root {
+  --bg: #eef0f4; --panel: #ffffff; --line: #d6dae3; --fg: #161a22; --muted: #5b6474;
+  --accent: #4f46e5; --accent-fg: #ffffff; --ok: #0f8a5f; --warn: #b45309; --bad: #c2312f; --plate: #dfe3ea;
+  --display: "Sora", "Inter", system-ui, sans-serif; --body: "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12141a; --panel: #1a1d25; --line: #2b303c; --fg: #e8eaf0; --muted: #9aa3b5;
+  --accent: #8b87ff; --accent-fg: #0f1020; --ok: #34d399; --warn: #fbbf24; --bad: #f87171; --plate: #0c0e13; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12141a; --panel: #1a1d25; --line: #2b303c; --fg: #e8eaf0; --muted: #9aa3b5;
+  --accent: #8b87ff; --accent-fg: #0f1020; --ok: #34d399; --warn: #fbbf24; --bad: #f87171; --plate: #0c0e13; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--body); margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px }
+header { max-width: 1280px; margin: 0 auto 18px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; justify-content: space-between }
+h1 { font: 700 22px/1.2 var(--display); margin: 0; letter-spacing: -.01em }
+h1 small { font: 500 12px var(--mono); color: var(--muted); margin-left: 8px; letter-spacing: 0 }
+.lede { color: var(--muted); margin: 0; max-width: 62ch }
+main { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 18px }
+@media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr) } }
+section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; min-width: 0 }
+.col { display: grid; gap: 18px; align-content: start; min-width: 0 }
+h2 { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 }
+.rack { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px }
+.rack li { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; font-size: 13px }
+.dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--line) }
+.rack li.ok .dot { background: var(--ok); border-color: var(--ok) }
+.rack li.err .dot { background: var(--bad); border-color: var(--bad) }
+.rack .meta { font: 12px var(--mono); color: var(--muted); text-align: right }
+.rack a { color: var(--accent) }
+label.file { display: flex; align-items: center; gap: 10px; border: 1px dashed var(--line); border-radius: 8px; padding: 10px; cursor: pointer }
+label.file:hover { border-color: var(--accent) }
+label.file input { position: absolute; opacity: 0; width: 1px; height: 1px }
+label.file span { color: var(--muted); font-size: 13px }
+.btn { font: 600 14px var(--body); border-radius: 8px; padding: 9px 16px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg) }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.btn:focus-visible, label.file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center }
+.thumbwrap { position: relative; background: var(--plate); border-radius: 8px; overflow: hidden; min-height: 120px; display: grid; place-items: center }
+.thumbwrap canvas { display: block; max-width: 100%; height: auto; cursor: pointer }
+.empty { color: var(--muted); font-size: 13px; padding: 24px; text-align: center }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0 }
+.slider { display: grid; grid-template-columns: 120px 1fr 40px; gap: 8px; align-items: center; font-size: 13px }
+.slider output { font: 12px var(--mono); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums }
+input[type=range] { accent-color: var(--accent); width: 100% }
+.consent { display: flex; gap: 8px; align-items: flex-start; font-size: 13px }
+.consent input { margin-top: 3px; accent-color: var(--accent) }
+.plate { background: var(--plate); border-radius: 10px; position: relative; min-height: 360px; display: grid; place-items: center; overflow: hidden; touch-action: none }
+.plate canvas { display: block; max-width: 100%; max-height: 72vh; height: auto }
+.plate .tag { position: absolute; top: 8px; font: 600 11px var(--mono); padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,.55); color: #fff; letter-spacing: .05em }
+.status { font: 12.5px var(--mono); color: var(--muted); min-height: 1.5em; margin: 0 }
+.status.err { color: var(--bad) }
+.status.ok { color: var(--ok) }
+footer { max-width: 1280px; margin: 24px auto 0; color: var(--muted); font-size: 12.5px; display: grid; gap: 4px }
+footer p { margin: 0; max-width: 90ch }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important } }
+</style>
+
+<header>
+  <h1>FaceFusion Live <small>web&nbsp;&middot; runs in your browser</small></h1>
+  <p class="lede">Swap a face from one photo onto another. Nothing is uploaded: the models and photos stay on this device.</p>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card" aria-labelledby="h-models">
+      <h2 id="h-models">1&nbsp;&middot; Models</h2>
+      <ul class="rack" id="rack"></ul>
+      <label class="file" for="models"><input id="models" type="file" accept=".onnx" multiple>
+        <strong>Load .onnx files&hellip;</strong><span>select all four at once</span></label>
+      <p class="hint">Download each model once using the links (GitHub), then load them here. They are read from disk and never uploaded. The models are licensed for non-commercial use only.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-src">
+      <h2 id="h-src">2&nbsp;&middot; Source face</h2>
+      <label class="file" for="srcfile"><input id="srcfile" type="file" accept="image/*"><strong>Choose photo&hellip;</strong><span id="srcname">the face to use</span></label>
+      <div class="thumbwrap" id="srcwrap"><div class="empty">No photo yet</div></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-tgt">
+      <h2 id="h-tgt">3&nbsp;&middot; Target photo</h2>
+      <label class="file" for="tgtfile"><input id="tgtfile" type="file" accept="image/*"><strong>Choose photo&hellip;</strong><span id="tgtname">the photo to change</span></label>
+      <div class="thumbwrap" id="tgtwrap"><div class="empty">No photo yet</div></div>
+      <p class="hint" id="tgthint">Click faces to choose which to replace. Faces you don't select stay as they are.</p>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card" aria-labelledby="h-res">
+      <h2 id="h-res">Result&nbsp;&middot; drag to compare</h2>
+      <div class="plate" id="plate"><div class="empty">Your result appears here.</div></div>
+      <div class="slider"><label for="blend">Blend strength</label><input id="blend" type="range" min="0" max="100" value="100"><output id="blendv">1.00</output></div>
+      <div class="slider"><label for="feather">Edge feather</label><input id="feather" type="range" min="5" max="60" value="30"><output id="featherv">0.30</output></div>
+      <label class="consent"><input id="consent" type="checkbox"> <span>I have the consent of every person whose face is used or replaced. I will not create intimate, deceptive or harassing content.</span></label>
+      <div class="row">
+        <button class="btn primary" id="swap" disabled>Swap face</button>
+        <button class="btn" id="save" disabled>Save PNG</button>
+      </div>
+      <p class="status" id="status" role="status">Load the four models to begin.</p>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <p>Same models and pipeline as the FaceFusion Live desktop app (SCRFD &rarr; ArcFace &rarr; inswapper). Explicit content is refused. Saved images carry a visible "AI-generated" label.</p>
+  <p>For live webcam and video with audio, use the desktop app's portable build, which also runs without installation.</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.wasm.min.js"></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const FF = "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/";
+const MODELS = [
+  { key: "det", label: "Face detector", match: /scrfd|retinaface|det_10g/i, file: "scrfd_2.5g.onnx", size: "3 MB" },
+  { key: "arc", label: "Identity (ArcFace)", match: /arcface|w600k/i, file: "arcface_w600k_r50.onnx", size: "166 MB" },
+  { key: "swap", label: "Face swapper", match: /inswapper/i, file: "inswapper_128_fp16.onnx", size: "265 MB" },
+  { key: "nsfw", label: "Content safeguard", match: /nsfw/i, file: "open_nsfw.onnx", size: "23 MB" },
+];
+const T = {
+  arc112: [[0.34191607,0.46157411],[0.65653393,0.45983393],[0.50022500,0.64050536],[0.37097589,0.82469196],[0.63151696,0.82325089]],
+  arc128: [[0.36167656,0.40387734],[0.63696719,0.40235469],[0.50019687,0.56044219],[0.38710391,0.72160547],[0.61507734,0.72034453]],
+};
+const S = { sess: {}, emap: null, src: null, srcFaces: [], srcIdx: 0, tgt: null, tgtFaces: [], sel: new Set(), result: null, split: 0.5, busy: false };
+
+ort.env.wasm.wasmPaths = new URL("./", location.href).href;
+ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+
+function status(msg, cls = "") { const s = $("status"); s.textContent = msg; s.className = "status " + cls; }
+const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+
+function renderRack() {
+  $("rack").innerHTML = "";
+  for (const m of MODELS) {
+    const li = document.createElement("li");
+    const st = S.sess[m.key];
+    li.className = st ? "ok" : "";
+    li.innerHTML = `<span class="dot"></span><span></span><span class="meta"></span>`;
+    li.children[1].textContent = m.label;
+    if (st) li.children[2].textContent = "loaded";
+    else {
+      const a = document.createElement("a");
+      a.href = FF + m.file; a.target = "_blank"; a.rel = "noopener"; a.textContent = `${m.file}&nbsp;&middot; ${m.size}`;
+      li.children[2].appendChild(a);
+    }
+    $("rack").appendChild(li);
+  }
+}
+
+// ---- minimal ONNX protobuf walk: last float initializer of the graph (inswapper "emap") ----
+function varint(b, p) { let x = 0, s = 1; for (;;) { const c = b[p.i++]; x += (c & 127) * s; if (c < 128) return x; s *= 128; } }
+function fields(b, start, end, cb) {
+  const p = { i: start };
+  while (p.i < end) {
+    const tag = varint(b, p), f = Math.floor(tag / 8), w = tag & 7;
+    if (w === 0) cb(f, w, varint(b, p));
+    else if (w === 1) p.i += 8;
+    else if (w === 5) p.i += 4;
+    else if (w === 2) { const len = varint(b, p); cb(f, w, p.i, p.i + len); p.i += len; }
+    else throw new Error("bad protobuf wire type");
+  }
+}
+function readEmap(buf) {
+  const b = new Uint8Array(buf); let graph = null, last = null;
+  fields(b, 0, b.length, (f, w, s, e) => { if (f === 7 && w === 2) graph = [s, e]; });
+  if (!graph) throw new Error("not an ONNX model");
+  fields(b, graph[0], graph[1], (f, w, s, e) => { if (f === 5 && w === 2) last = [s, e]; });
+  let raw = null, dims = [];
+  fields(b, last[0], last[1], (f, w, s, e) => { if (f === 1 && w === 0) dims.push(s); if (f === 9 && w === 2) raw = [s, e]; });
+  if (!raw || dims[0] !== 512 || dims[1] !== 512) throw new Error("inswapper embedding map not found");
+  return new Float32Array(buf.slice(raw[0], raw[1]));
+}
+
+$("models").addEventListener("change", async (ev) => {
+  for (const file of ev.target.files) {
+    const m = MODELS.find((x) => x.match.test(file.name));
+    if (!m) { status(`Skipped ${file.name}: not one of the four models.`, "err"); continue; }
+    try {
+      status(`Loading ${file.name} (${(file.size / 1048576).toFixed(0)} MB)&hellip;`); await frame();
+      const buf = await file.arrayBuffer();
+      if (m.key === "swap") S.emap = readEmap(buf);
+      S.sess[m.key] = await ort.InferenceSession.create(new Uint8Array(buf), { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+      renderRack();
+    } catch (e) { status(`Could not load ${file.name}: ${e.message || e}`, "err"); console.error(e); return; }
+  }
+  ev.target.value = "";
+  const missing = MODELS.filter((m) => !S.sess[m.key]);
+  status(missing.length ? `Still needed: ${missing.map((m) => m.file).join(", ")}` : "Models ready. Choose a source face and a target photo.", missing.length ? "" : "ok");
+  if (S.src && !S.srcFaces.length) analyzeSource(); if (S.tgt && !S.tgtFaces.length) analyzeTarget();
+  refresh();
+});
+
+// ---- image helpers ----
+async function fileToCanvas(file, maxSide = 2048) {
+  const bmp = await createImageBitmap(file);
+  const s = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas"); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); return c;
+}
+function similarity(src, dstT, size) { // Umeyama 2D: returns [a,b,tx,c,d,ty] with dst = M*src
+  const dst = dstT.map(([x, y]) => [x * size, y * size]); const n = src.length;
+  let mx = 0, my = 0, nx = 0, ny = 0;
+  for (let i = 0; i < n; i++) { mx += src[i][0]; my += src[i][1]; nx += dst[i][0]; ny += dst[i][1]; }
+  mx /= n; my /= n; nx /= n; ny /= n;
+  let sxx = 0, sxy = 0, var_ = 0;
+  for (let i = 0; i < n; i++) {
+    const ax = src[i][0] - mx, ay = src[i][1] - my, bx = dst[i][0] - nx, by = dst[i][1] - ny;
+    sxx += ax * bx + ay * by; sxy += ax * by - ay * bx; var_ += ax * ax + ay * ay;
+  }
+  const a = sxx / var_, b = sxy / var_;
+  return [a, -b, nx - (a * mx - b * my), b, a, ny - (b * mx + a * my)];
+}
+function invert(m) { const [a, b, c, d, e, f] = m; const det = a * e - b * d;
+  return [e / det, -b / det, (b * f - c * e) / det, -d / det, a / det, (c * d - a * f) / det]; }
+function warp(srcCanvas, m, size) {
+  const c = document.createElement("canvas"); c.width = c.height = size; const g = c.getContext("2d");
+  g.imageSmoothingQuality = "high"; g.setTransform(m[0], m[3], m[1], m[4], m[2], m[5]); g.drawImage(srcCanvas, 0, 0); return c;
+}
+function toTensor(canvas, mean, scale, layout = "nchw", bgr = false) {
+  const w = canvas.width, h = canvas.height, d = canvas.getContext("2d").getImageData(0, 0, w, h).data;
+  const out = new Float32Array(3 * w * h), n = w * h;
+  for (let i = 0; i < n; i++) for (let ch = 0; ch < 3; ch++) {
+    const v = (d[i * 4 + (bgr ? 2 - ch : ch)] - mean[ch]) * scale;
+    if (layout === "nchw") out[ch * n + i] = v; else out[i * 3 + ch] = v;
+  }
+  return layout === "nchw" ? new ort.Tensor("float32", out, [1, 3, h, w]) : new ort.Tensor("float32", out, [1, h, w, 3]);
+}
+
+// ---- models ----
+async function detect(canvas) {
+  const size = 640, s = size / Math.max(canvas.width, canvas.height);
+  const c = document.createElement("canvas"); c.width = c.height = size; const g = c.getContext("2d");
+  g.fillStyle = "#000"; g.fillRect(0, 0, size, size); g.drawImage(canvas, 0, 0, canvas.width * s, canvas.height * s);
+  const sess = S.sess.det; const out = await sess.run({ [sess.inputNames[0]]: toTensor(c, [127.5, 127.5, 127.5], 1 / 128) });
+  const o = sess.outputNames.map((n) => out[n].data); const cand = [];
+  [8, 16, 32].forEach((stride, k) => {
+    const fw = size / stride, sc = o[k], bb = o[k + 3], kp = o[k + 6];
+    for (let i = 0; i < sc.length; i++) {
+      if (sc[i] < 0.5) continue;
+      const a = Math.floor(i / 2), ax = (a % fw) * stride, ay = Math.floor(a / fw) * stride;
+      const box = [ax - bb[i * 4] * stride, ay - bb[i * 4 + 1] * stride, ax + bb[i * 4 + 2] * stride, ay + bb[i * 4 + 3] * stride].map((v) => v / s);
+      const kps = []; for (let j = 0; j < 5; j++) kps.push([(ax + kp[i * 10 + j * 2] * stride) / s, (ay + kp[i * 10 + j * 2 + 1] * stride) / s]);
+      cand.push({ box, kps, score: sc[i] });
+    }
+  });
+  cand.sort((p, q) => q.score - p.score); const keep = [];
+  for (const f of cand) if (keep.every((k) => iou(k.box, f.box) < 0.4)) keep.push(f);
+  return keep.sort((p, q) => area(q.box) - area(p.box));
+}
+const area = (b) => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+function iou(a, b) { const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const i = w * h; return i / (area(a) + area(b) - i); }
+async function embed(canvas, kps) {
+  const crop = warp(canvas, similarity(kps, T.arc112, 112), 112); const sess = S.sess.arc;
+  const e = (await sess.run({ [sess.inputNames[0]]: toTensor(crop, [127.5, 127.5, 127.5], 1 / 127.5) }))[sess.outputNames[0]].data;
+  let n = 0; for (const v of e) n += v * v; n = Math.sqrt(n); return Float32Array.from(e, (v) => v / n);
+}
+function latent(emb) {
+  const l = new Float32Array(512);
+  for (let j = 0; j < 512; j++) { let s = 0; for (let i = 0; i < 512; i++) s += emb[i] * S.emap[i * 512 + j]; l[j] = s; }
+  let n = 0; for (const v of l) n += v * v; n = Math.sqrt(n); return l.map((v) => v / n);
+}
+async function nsfwCheck(canvas, what) {
+  const c = document.createElement("canvas"); c.width = c.height = 224; c.getContext("2d").drawImage(canvas, 0, 0, 224, 224);
+  const sess = S.sess.nsfw;
+  const p = (await sess.run({ [sess.inputNames[0]]: toTensor(c, [104, 117, 123], 1, "nhwc", true) }))[sess.outputNames[0]].data[1];
+  if (p > 0.8) throw new Error(`The ${what} appears to contain explicit content and was refused.`);
+}
+function boxMask(size, blur) {
+  const m = new Float32Array(size * size), amount = Math.round(size * 0.5 * blur), pad = Math.max(Math.floor(amount / 2), 1);
+  const ramp = (v) => { const t = (v - pad) / Math.max(amount * 0.5, 1); return Math.max(0, Math.min(1, t)); };
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const d = Math.min(x, y, size - 1 - x, size - 1 - y); const r = ramp(d); m[y * size + x] = r * r * (3 - 2 * r);
+  }
+  return m;
+}
+async function swapOne(base, out, face, lat) {
+  const M = similarity(face.kps, T.arc128, 128), crop = warp(base, M, 128);
+  const sess = S.sess.swap;
+  const res = await sess.run({ target: toTensor(crop, [0, 0, 0], 1 / 255), source: new ort.Tensor("float32", lat, [1, 512]) });
+  const y = res[sess.outputNames[0]].data, n = 128 * 128, mask = boxMask(128, $("feather").value / 100), strength = $("blend").value / 100;
+  const c = document.createElement("canvas"); c.width = c.height = 128; const g = c.getContext("2d"); const img = g.createImageData(128, 128);
+  for (let i = 0; i < n; i++) { for (let ch = 0; ch < 3; ch++) img.data[i * 4 + ch] = Math.max(0, Math.min(255, y[ch * n + i] * 255));
+    img.data[i * 4 + 3] = mask[i] * strength * 255; }
+  g.putImageData(img, 0, 0);
+  const inv = invert(M), o = out.getContext("2d"); o.save(); o.imageSmoothingQuality = "high";
+  o.setTransform(inv[0], inv[3], inv[1], inv[4], inv[2], inv[5]); o.drawImage(c, 0, 0); o.restore();
+}
+function label(canvas) {
+  const g = canvas.getContext("2d"), t = "AI-generated | FaceFusion Live", fs = Math.max(11, Math.round(Math.min(canvas.width, canvas.height) / 55));
+  g.font = `600 ${fs}px Inter, sans-serif`; const w = g.measureText(t).width, p = Math.round(fs * 0.5);
+  g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(canvas.width - w - 3 * p, canvas.height - fs - 3 * p, w + 2 * p, fs + 2 * p);
+  g.fillStyle = "#fff"; g.textBaseline = "top"; g.fillText(t, canvas.width - w - 2 * p, canvas.height - fs - 2 * p);
+}
+
+// ---- views ----
+function drawFaces(wrap, canvas, faces, selected, onPick) {
+  const v = document.createElement("canvas"); v.width = canvas.width; v.height = canvas.height;
+  const g = v.getContext("2d"); g.drawImage(canvas, 0, 0); const lw = Math.max(2, canvas.width / 400);
+  faces.forEach((f, i) => { const on = selected.has(i); g.lineWidth = on ? lw * 1.8 : lw; g.strokeStyle = on ? "#22c55e" : "#60a5fa";
+    g.strokeRect(f.box[0], f.box[1], f.box[2] - f.box[0], f.box[3] - f.box[1]); });
+  v.addEventListener("click", (e) => { const r = v.getBoundingClientRect(), x = (e.clientX - r.left) * v.width / r.width, y = (e.clientY - r.top) * v.height / r.height;
+    const i = faces.findIndex((f) => x >= f.box[0] && x <= f.box[2] && y >= f.box[1] && y <= f.box[3]); if (i >= 0) onPick(i); });
+  wrap.replaceChildren(v);
+}
+const modelsReady = () => MODELS.every((m) => S.sess[m.key]);
+async function analyzeSource() {
+  if (!S.src || !modelsReady()) return;
+  try { status("Checking and detecting the source face&hellip;"); await frame(); await nsfwCheck(S.src, "source photo");
+    S.srcFaces = await detect(S.src); S.srcIdx = 0;
+    if (!S.srcFaces.length) status("No face found in the source photo. Use a sharp, front-facing, well-lit photo.", "err");
+    else { S.srcFaces[0].emb = await embed(S.src, S.srcFaces[0].kps); status(`Source: ${S.srcFaces.length} face(s); using the largest. Click another to change.`); }
+  } catch (e) { S.srcFaces = []; status(e.message, "err"); }
+  showSource(); refresh();
+}
+function showSource() { if (S.src) drawFaces($("srcwrap"), S.src, S.srcFaces, new Set([S.srcIdx]), async (i) => {
+  S.srcIdx = i; if (!S.srcFaces[i].emb) S.srcFaces[i].emb = await embed(S.src, S.srcFaces[i].kps); showSource(); }); }
+async function analyzeTarget() {
+  if (!S.tgt || !modelsReady()) return;
+  try { status("Checking and detecting faces in the target&hellip;"); await frame(); await nsfwCheck(S.tgt, "target photo");
+    S.tgtFaces = await detect(S.tgt); S.sel = new Set(S.tgtFaces.length ? [0] : []);
+    status(S.tgtFaces.length ? `Target: ${S.tgtFaces.length} face(s). The largest is selected.` : "No face found in the target photo.", S.tgtFaces.length ? "" : "err");
+  } catch (e) { S.tgtFaces = []; status(e.message, "err"); }
+  showTarget(); refresh();
+}
+function showTarget() { if (S.tgt) drawFaces($("tgtwrap"), S.tgt, S.tgtFaces, S.sel, (i) => { S.sel.has(i) ? S.sel.delete(i) : S.sel.add(i); showTarget(); refresh(); }); }
+
+$("srcfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f) return; $("srcname").textContent = f.name;
+  S.src = await fileToCanvas(f); S.srcFaces = []; showSource(); await analyzeSource(); });
+$("tgtfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f) return; $("tgtname").textContent = f.name;
+  S.tgt = await fileToCanvas(f); S.tgtFaces = []; S.result = null; showTarget(); showResult(); await analyzeTarget(); });
+
+function refresh() {
+  $("swap").disabled = S.busy || !(modelsReady() && S.srcFaces.length && S.tgtFaces.length && S.sel.size && $("consent").checked);
+  $("save").disabled = S.busy || !S.result;
+}
+["consent"].forEach((id) => $(id).addEventListener("change", refresh));
+for (const id of ["blend", "feather"]) $(id).addEventListener("input", () => { $(id + "v").textContent = ($(id).value / 100).toFixed(2); });
+
+$("swap").addEventListener("click", async () => {
+  S.busy = true; refresh(); const t0 = performance.now();
+  try {
+    const src = S.srcFaces[S.srcIdx]; if (!src.emb) src.emb = await embed(S.src, src.kps);
+    const lat = latent(src.emb), out = document.createElement("canvas"); out.width = S.tgt.width; out.height = S.tgt.height;
+    out.getContext("2d").drawImage(S.tgt, 0, 0);
+    let k = 0; for (const i of S.sel) { status(`Swapping face ${++k} of ${S.sel.size}&hellip;`); await frame(); await swapOne(S.tgt, out, S.tgtFaces[i], lat); }
+    S.result = out; showResult(); status(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s. Drag the image to compare before and after.`, "ok");
+  } catch (e) { status(`Swap failed: ${e.message || e}`, "err"); console.error(e); }
+  S.busy = false; refresh();
+});
+
+function showResult() {
+  const plate = $("plate");
+  if (!S.result) { plate.replaceChildren(Object.assign(document.createElement("div"), { className: "empty", textContent: "Your result appears here." })); return; }
+  const v = document.createElement("canvas"); v.id = "resultCanvas"; v.width = S.result.width; v.height = S.result.height;
+  const draw = () => { const g = v.getContext("2d"), sx = Math.round(v.width * S.split); g.drawImage(S.result, 0, 0);
+    g.drawImage(S.tgt, 0, 0, sx, v.height, 0, 0, sx, v.height); g.fillStyle = "#fff"; g.fillRect(sx - 1, 0, 2, v.height); };
+  const move = (e) => { const r = v.getBoundingClientRect(); S.split = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); draw(); };
+  v.addEventListener("pointerdown", (e) => { v.setPointerCapture(e.pointerId); move(e); });
+  v.addEventListener("pointermove", (e) => { if (e.buttons) move(e); });
+  draw(); const b = Object.assign(document.createElement("span"), { className: "tag", textContent: "BEFORE" }); b.style.left = "8px";
+  const a = Object.assign(document.createElement("span"), { className: "tag", textContent: "AFTER" }); a.style.right = "8px";
+  plate.replaceChildren(v, b, a);
+}
+
+$("save").addEventListener("click", async () => {
+  const c = document.createElement("canvas"); c.width = S.result.width; c.height = S.result.height;
+  c.getContext("2d").drawImage(S.result, 0, 0); label(c);
+  const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+  const dl = window.claude ? await window.claude.use("downloads").catch(() => null) : null;
+  if (dl) {
+    try { await dl.save({ filename: "faceswap-ai-generated.png", data: blob }); status("Saved.", "ok"); }
+    catch (e) { status("Save was cancelled.", ""); }
+  } else {
+    const url = URL.createObjectURL(blob); const img = new Image(); img.src = url; img.style.maxWidth = "100%";
+    $("plate").replaceChildren(img); status("Saving files isn't available here. Right-click or long-press the labelled image to save it.");
+  }
+});
+
+renderRack(); refresh();
+</script>
