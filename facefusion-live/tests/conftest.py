@@ -40,7 +40,7 @@ def engine():
         pytest.skip("core models missing")
     from facefusion_live.app.config import Settings
     from facefusion_live.core.engine import FaceEngine
-    return FaceEngine(Settings(provider="cpu", swapper="inswapper_128"))
+    return FaceEngine(Settings(provider="cpu", swapper="inswapper_128", pixel_boost=1, enhancer="none"))
 
 
 def make_video(path, img, frames=50, fps=25, size=(1280, 720), audio=True, motion=True):

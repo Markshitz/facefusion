@@ -141,7 +141,7 @@ def main(argv=None):
 
     def common(sp):
         sp.add_argument("--provider", choices=["auto", "cuda", "directml", "cpu"])
-        sp.add_argument("--enhancer", choices=["none", "gfpgan_1.4", "codeformer"])
+        sp.add_argument("--enhancer", choices=["none", "gpen_bfr_256", "gpen_bfr_512", "gfpgan_1.4", "codeformer"])
         sp.add_argument("--pixel-boost", dest="pixel_boost", type=int, choices=[1, 2, 4])
         sp.add_argument("--blend", type=float)
         sp.add_argument("--detector", choices=["retinaface_10g", "scrfd_2.5g"])

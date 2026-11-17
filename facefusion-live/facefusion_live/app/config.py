@@ -40,14 +40,14 @@ class Settings:
     det_size: int = 640
     det_threshold: float = 0.5
     # swap quality
-    pixel_boost: int = 1              # 1, 2 or 4 -> crop 128/256/512
+    pixel_boost: int = 2              # 1, 2 or 4 -> crop 128/256/512 (2 = sharper default)
     blend: float = 1.0                # 0..1 opacity of the swapped face
     mask_blur: float = 0.3            # feather amount of box mask
     color_match: float = 0.0          # 0..1 LAB statistic transfer strength
     occlusion_mask: bool = False      # XSeg occluder mask
     region_mask: bool = False         # BiSeNet face-parsing mask
     mouth_preserve: bool = False      # keep the original inner mouth
-    enhancer: str = "none"            # none | gfpgan_1.4 | codeformer
+    enhancer: str = "gpen_bfr_256"    # none | gpen_bfr_256 | gpen_bfr_512 | gfpgan_1.4 | codeformer
     enhance_strength: float = 0.8
     codeformer_fidelity: float = 0.7
     # tracking / temporal

@@ -28,7 +28,7 @@ Delete the folder to remove everything. To skip the download prompt, you can cop
 ## Run in a browser (no installation, nothing to load, image swap)
 
 `web/index.html` runs the same SCRFD → ArcFace → inswapper pipeline with ONNX Runtime Web (WebAssembly), and the
-models are **built in**. You open the page, pick two photos and swap. The bundle is 184 MB and the browser caches it
+models are **built in**. You open the page, pick two photos and swap. The bundle is 203 MB (now including GPEN restoration) and the browser caches it
 after the first visit. Nothing is uploaded.
 
 - `web/build_web_models.py <models_dir> web/models` builds the bundle. Large weights are stored as int8 with a
@@ -90,7 +90,8 @@ Several are **non-commercial** (see `docs/LICENSES.md`).
 | inswapper_128 (FP32, CPU) / inswapper_128_fp16 (GPU) * | 530 / 265 MB | the swap |
 | fan_68_5 * | 1 MB | 68 landmarks (mouth mask) |
 | open_nsfw * | 23 MB | explicit-content safeguard |
-| gfpgan_1.4 / codeformer | 325 / 360 MB | face restoration |
+| gpen_bfr_256 * | 72 MB | face restoration (default, sharp detail) |
+| gpen_bfr_512 / gfpgan_1.4 / codeformer | 271 / 325 / 360 MB | optional face restoration |
 | xseg_1 | 67 MB | occlusion mask (hands, microphones) |
 | bisenet_resnet_34 | 89 MB | face-region mask (keeps hair/beard edges) |
 
@@ -102,7 +103,7 @@ Several are **non-commercial** (see `docs/LICENSES.md`).
   occlusion handling and natural edges.
 - **Skin tone match**: transfers LAB colour statistics, with adjustable strength. **Blend strength** sets the opacity.
 - **Mouth preservation**: keeps the target's real mouth interior, so speech looks natural.
-- **Enhancement**: GFPGAN or CodeFormer, blended by strength (0–1) so skin texture is not over-smoothed.
+- **Enhancement (on by default)**: GPEN-256 restoration (sharp eyes, lashes, teeth) after the swap, blended by strength. GPEN-512, GFPGAN or CodeFormer are optional. Default detail is pixel boost ×2. Measured on a large face: sharpness (Laplacian variance) 17.7 → 140, identity 0.85 → 0.84.
 - **Temporal stability**: a One-Euro filter on landmarks (smooths jitter, little lag on fast motion). Full detection
   runs only every N frames; in between, a cheap detection in a small region around each tracked face. Identity
   embeddings are averaged per track, and face-to-source assignment is "sticky" to prevent identity flicker.

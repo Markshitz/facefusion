@@ -25,12 +25,17 @@ MODELS = {  # name -> (source file, quantize?)
     "arc": ("arcface_w600k_r50.onnx", True),
     "swap": ("inswapper_128.onnx", True),
     "nsfw": ("open_nsfw.onnx", True),
+    "enh": ("gpen_bfr_256.onnx", True),
 }
 
 
 def weight_only_int8(model: onnx.ModelProto, min_size: int = 4096) -> onnx.ModelProto:
     g = model.graph
     used = {i for n in g.node for i in n.input}
+    init_names = {i.name for i in g.initializer}
+    real_inputs = [i for i in g.input if i.name not in init_names]  # some exporters list weights as inputs
+    del g.input[:]
+    g.input.extend(real_inputs)
     keep, new_nodes = [], []
     for init in g.initializer:
         w = numpy_helper.to_array(init)

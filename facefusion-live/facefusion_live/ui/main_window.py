@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
             self.ctx.save()
         store = self.ctx.store
         from facefusion_live.core.engine import FaceEngine
-        req = FaceEngine(s, store).required_models() + ["fan_68_5", "open_nsfw"]
+        req = FaceEngine(s, store).required_models() + ["fan_68_5", "open_nsfw", "gpen_bfr_256"]
         missing = [m.name for m in store.missing(req)]
         if missing:
             self.tabs.setCurrentWidget(self.settings_tab)

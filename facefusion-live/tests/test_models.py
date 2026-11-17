@@ -105,6 +105,25 @@ def test_enhancer(engine, group, source):
         s.enhancer, s.enhance_strength = "none", 0.8
 
 
+@pytest.mark.skipif(not have_models("gpen_bfr_256"), reason="gpen missing")
+def test_default_quality_is_sharper(engine, group, source):
+    """Default quality (pixel boost x2 + GPEN) must give a visibly sharper face than the raw 128 px swap."""
+    big = cv2.resize(group, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    f = engine.analyze(big)[2]
+    x1, y1, x2, y2 = f.bbox.astype(int)
+    sharp = lambda im: cv2.Laplacian(cv2.cvtColor(im[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()  # noqa: E731
+    s = engine.settings
+    raw = engine.process(big, [(f, source)])
+    s.pixel_boost, s.enhancer = 2, "gpen_bfr_256"
+    try:
+        hq = engine.process(big, [(f, source)])
+    finally:
+        s.pixel_boost, s.enhancer = 1, "none"
+    assert sharp(hq) > 1.5 * sharp(raw)
+    after = min(engine.analyze(hq), key=lambda a: np.linalg.norm(a.center - f.center))
+    assert float(np.dot(after.embedding, source.embedding)) > 0.6
+
+
 @pytest.mark.skipif(not have_models("open_nsfw"), reason="nsfw model missing")
 def test_nsfw_check_passes_normal_photo(engine, group):
     engine.check_content(group, "photo")  # must not raise

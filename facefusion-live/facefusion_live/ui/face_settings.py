@@ -16,7 +16,8 @@ class FaceSettingsPanel(QScrollArea):
         self.setWidget(body)
         s = ctx.settings
 
-        self._combo("Enhancer", "enhancer", [("Off", "none"), ("GFPGAN 1.4", "gfpgan_1.4"), ("CodeFormer", "codeformer")])
+        self._combo("Enhancer", "enhancer", [("Off", "none"), ("GPEN 256 (sharp, default)", "gpen_bfr_256"), ("GPEN 512 (large faces)", "gpen_bfr_512"),
+                                            ("GFPGAN 1.4", "gfpgan_1.4"), ("CodeFormer", "codeformer")])
         self._slider("Enhance strength", "enhance_strength", 0, 1)
         self._slider("Blend strength", "blend", 0, 1)
         self._slider("Edge feather", "mask_blur", 0, 1)
