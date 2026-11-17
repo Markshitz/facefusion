@@ -207,3 +207,35 @@ def test_camera_disconnect_reported(plain_video, monkeypatch):
         time.sleep(0.1)
     ct.stop()
     assert ct.error and "disconnected" in ct.error
+
+
+def test_gpu_runtime_failure_falls_back_to_cpu(tmp_path):
+    """A GPU provider rejecting an operator at run time (DirectML 'parameter is incorrect') must not crash:
+    the model is rebuilt on CPU and the call retried."""
+    import onnx
+    from onnx import TensorProto, helper
+
+    from facefusion_live.inference.session import SafeSession, Sessions
+    g = helper.make_graph([helper.make_node("Add", ["x", "x"], ["y"])], "g",
+                          [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 3])],
+                          [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 3])])
+    path = tmp_path / "add.onnx"
+    m = helper.make_model(g, opset_imports=[helper.make_opsetid("", 13)])
+    m.ir_version = 8  # readable by every supported onnxruntime
+    onnx.save(m, str(path))
+    sessions = Sessions(["CPUExecutionProvider"])
+    s = sessions.get(path)
+    assert isinstance(s, SafeSession)
+
+    class FailingGpu:
+        def run(self, *_):
+            raise RuntimeError("[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : Reshape_223 ... The parameter is incorrect.")
+
+        def get_providers(self):
+            return ["DmlExecutionProvider", "CPUExecutionProvider"]
+
+    s.inner = FailingGpu()
+    x = np.array([[1, 2, 3]], np.float32)
+    out = sessions.run(s, {"x": x})[0]
+    assert out.tolist() == [[2, 4, 6]] and s.fell_back and not s.on_gpu
+    assert sessions.run(s, {"x": x})[0].tolist() == [[2, 4, 6]]  # stays on CPU

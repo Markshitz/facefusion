@@ -13,12 +13,39 @@ STRIDES = (8, 16, 32)
 NUM_ANCHORS = 2
 
 
+def fixed_size_model(path: Path, size: int) -> bytes:
+    """The detector with its input fixed to 1x3xSIZExSIZE.
+
+    SCRFD computes its output reshapes from the (dynamic) input size. DirectML rejects those
+    run-time shape computations ("Reshape ... The parameter is incorrect"); with a fixed input
+    every shape becomes a constant, which all providers handle (and CPU runs slightly faster).
+    """
+    import onnx
+    model = onnx.load(str(path))
+    dims = model.graph.input[0].type.tensor_type.shape.dim
+    for d, v in zip(dims, (1, 3, size, size)):
+        d.ClearField("dim_param")
+        d.dim_value = v
+    for out in model.graph.output:  # let ONNX Runtime re-infer the output shapes
+        out.type.tensor_type.ClearField("shape")
+    return model.SerializeToString()
+
+
 class SCRFD:
     def __init__(self, sessions: Sessions, path: Path):
         self.sessions = sessions
-        self.sess = sessions.get(path)
+        self.path = Path(path)
+        self._sessions: dict = {}
+        self.sess = self._session(640)
         self.input_name = self.sess.get_inputs()[0].name
         self._anchor_cache: dict = {}
+
+    def _session(self, size: int):
+        s = self._sessions.get(size)
+        if s is None:
+            s = self.sessions.get(self.path, key=f"{self.path}#{size}", model_bytes=fixed_size_model(self.path, size))
+            self._sessions[size] = s
+        return s
 
     def _anchors(self, h: int, w: int, stride: int) -> np.ndarray:
         key = (h, w, stride)
@@ -38,7 +65,8 @@ class SCRFD:
         canvas = np.zeros((size, size, 3), np.uint8)
         canvas[:nh, :nw] = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
         blob = cv2.dnn.blobFromImage(canvas, 1.0 / 128, (size, size), (127.5, 127.5, 127.5), swapRB=True)
-        outs = self.sessions.run(self.sess, {self.input_name: blob})
+        size = int(size)
+        outs = self.sessions.run(self._session(size), {self.input_name: blob})
         boxes, kpss, scores = [], [], []
         for i, stride in enumerate(STRIDES):
             sc = outs[i].reshape(-1)

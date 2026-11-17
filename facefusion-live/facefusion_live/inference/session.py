@@ -68,39 +68,86 @@ def provider_label(providers: list) -> str:
     return name.replace("ExecutionProvider", "")
 
 
+class SafeSession:
+    """An InferenceSession that falls back to CPU if a GPU run fails.
+
+    Some GPU providers (notably DirectML) reject individual operators at run time
+    ("The parameter is incorrect"). Instead of failing the whole app, the model is
+    rebuilt on CPU once and the call is retried; every later call stays on CPU.
+    """
+
+    def __init__(self, source, so: ort.SessionOptions, providers: list, name: str):
+        self.source, self.so, self.name = source, so, name
+        self.inner = self._create(providers)
+        self.fell_back = False
+
+    def _create(self, providers: list) -> ort.InferenceSession:
+        try:
+            return ort.InferenceSession(self.source, self.so, providers=providers)
+        except Exception as e:  # GPU init failure -> CPU
+            if providers[0] == "CPUExecutionProvider":
+                raise
+            log.error("GPU session for %s failed (%s); using CPU", self.name, e)
+            return ort.InferenceSession(self.source, self.so, providers=["CPUExecutionProvider"])
+
+    @property
+    def on_gpu(self) -> bool:
+        return self.inner.get_providers()[0] != "CPUExecutionProvider"
+
+    def run(self, outputs, feeds):
+        try:
+            return self.inner.run(outputs, feeds)
+        except Exception as e:
+            if not self.on_gpu:
+                raise
+            log.error("%s failed on %s (%s); switching this model to CPU", self.name, self.inner.get_providers()[0],
+                      str(e).splitlines()[0][:300])
+            self.inner = ort.InferenceSession(self.source, self.so, providers=["CPUExecutionProvider"])
+            self.fell_back = True
+            return self.inner.run(outputs, feeds)
+
+    def get_inputs(self):
+        return self.inner.get_inputs()
+
+    def get_outputs(self):
+        return self.inner.get_outputs()
+
+    def get_providers(self):
+        return self.inner.get_providers()
+
+
 class Sessions:
-    """Caches one InferenceSession per model file. Thread-safe creation."""
+    """Caches one session per model (file path or in-memory variant). Thread-safe creation."""
 
     def __init__(self, providers: list):
         self.providers = providers
-        self._cache: dict[str, ort.InferenceSession] = {}
+        self._cache: dict[str, SafeSession] = {}
         self._lock = threading.Lock()
         # DirectML sessions are not safe for concurrent Run() calls.
         self.run_lock = threading.Lock() if provider_label(providers) == "Dml" else None
 
-    def get(self, path: Path) -> ort.InferenceSession:
-        key = str(path)
+    def _options(self) -> ort.SessionOptions:
+        so = ort.SessionOptions()
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        so.log_severity_level = 3
+        if provider_label(self.providers) == "Dml":
+            so.enable_mem_pattern = False
+            so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        return so
+
+    def get(self, path: Path, key: str | None = None, model_bytes: bytes | None = None) -> SafeSession:
+        """Session for `path`, or for an in-memory variant of it (`model_bytes`) cached under `key`."""
+        key = key or str(path)
         with self._lock:
             s = self._cache.get(key)
             if s is None:
-                so = ort.SessionOptions()
-                so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-                so.log_severity_level = 3
-                if provider_label(self.providers) == "Dml":
-                    so.enable_mem_pattern = False
-                    so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-                try:
-                    s = ort.InferenceSession(key, so, providers=self.providers)
-                except Exception as e:  # GPU init failure -> CPU fallback
-                    if self.providers[0] == "CPUExecutionProvider":
-                        raise
-                    log.error("GPU session for %s failed (%s); using CPU", path.name, e)
-                    s = ort.InferenceSession(key, so, providers=["CPUExecutionProvider"])
-                log.info("Loaded %s on %s", path.name, s.get_providers()[0])
+                name = Path(path).name + ("" if model_bytes is None else f" [{key.split('#')[-1]}]")
+                s = SafeSession(model_bytes if model_bytes is not None else str(path), self._options(), self.providers, name)
+                log.info("Loaded %s on %s", name, s.get_providers()[0])
                 self._cache[key] = s
             return s
 
-    def run(self, sess: ort.InferenceSession, feeds: dict, outputs=None):
+    def run(self, sess: SafeSession, feeds: dict, outputs=None):
         if self.run_lock:
             with self.run_lock:
                 return sess.run(outputs, feeds)

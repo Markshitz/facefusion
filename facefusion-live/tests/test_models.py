@@ -164,3 +164,21 @@ def test_live_pipeline_real_inference(engine, group, source, tmp_path):
     assert res is not None and lp.error is None
     faces = engine.analyze(res[0])
     assert max(float(np.dot(f.embedding, source.embedding)) for f in faces) > 0.5
+
+
+def test_fixed_size_detector_matches_dynamic(group):
+    """Fixed-shape detector variants (needed for DirectML) must give the same faces as the original model."""
+    import onnxruntime as ort
+
+    from conftest import models_dir
+    from facefusion_live.face_detection.scrfd import SCRFD
+    from facefusion_live.inference.session import Sessions
+    path = models_dir() / "retinaface_10g.onnx"
+    fixed = SCRFD(Sessions(["CPUExecutionProvider"]), path)
+    for size in (640, 320, 192):
+        dyn = SCRFD(Sessions(["CPUExecutionProvider"]), path)
+        dyn._sessions[size] = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])  # original, dynamic
+        a, b = fixed.detect(group, size), dyn.detect(group, size)
+        assert len(a) == len(b) and len(a) >= (6 if size >= 320 else 1), size
+        assert np.allclose([f.bbox for f in a], [f.bbox for f in b], atol=0.5), size
+        assert fixed._session(size).get_inputs()[0].shape == [1, 3, size, size]
