@@ -8,3 +8,4 @@ packaging/ffmpeg/
 selftest.txt
 installed.txt
 web/ort-wasm-simd-threaded.*
+web/models/

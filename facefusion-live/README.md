@@ -25,12 +25,21 @@ settings, logs and models are kept in `FaceFusionLive\data\`, and nothing is wri
 Delete the folder to remove everything. To skip the download prompt, you can copy existing `.onnx` files into
 `data\models\`.
 
-## Run in a browser (no installation, image swap)
+## Run in a browser (no installation, nothing to load, image swap)
 
-`web/index.html` runs the same SCRFD → ArcFace → inswapper pipeline with ONNX Runtime Web (WebAssembly).
-You download the four `.onnx` models once and load them from disk; nothing is uploaded. It is published as a
-claude.ai artifact, or you can run `web/fetch_runtime.sh` and serve the folder locally. Webcam and video need the
-desktop or portable build, because artifacts cannot access the camera and the page can't keep audio.
+`web/index.html` runs the same SCRFD → ArcFace → inswapper pipeline with ONNX Runtime Web (WebAssembly), and the
+models are **built in**. You open the page, pick two photos and swap. The bundle is 184 MB and the browser caches it
+after the first visit. Nothing is uploaded.
+
+- `web/build_web_models.py <models_dir> web/models` builds the bundle. Large weights are stored as int8 with a
+  per-channel scale and expanded back to fp32 when the model loads, so inference runs at full precision. Measured
+  against the originals: swapper output PSNR 46 dB, ArcFace cosine 0.9997, NSFW probabilities within 0.001. (Full
+  int8 activation quantization was rejected: PSNR 15 dB, 5× slower.) Parts are under 15 MB and named `.wasm`,
+  because the artifact host only serves known binary types. The page verifies a SHA-256 checksum per model.
+- `web/fetch_runtime.sh` fetches the ONNX Runtime Web files; then serve `web/` locally, or publish it as an
+  artifact.
+- Webcam and video need the desktop or portable build: artifacts cannot use the camera, and the page can't keep the
+  audio track.
 
 ## Install (Windows, no Python needed)
 

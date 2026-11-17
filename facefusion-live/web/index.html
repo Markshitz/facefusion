@@ -35,6 +35,8 @@ h2 { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .08e
 .rack li.err .dot { background: var(--bad); border-color: var(--bad) }
 .rack .meta { font: 12px var(--mono); color: var(--muted); text-align: right }
 .rack a { color: var(--accent) }
+progress { width: 100%; height: 6px; accent-color: var(--accent) }
+progress[hidden] { display: none }
 label.file { display: flex; align-items: center; gap: 10px; border: 1px dashed var(--line); border-radius: 8px; padding: 10px; cursor: pointer }
 label.file:hover { border-color: var(--accent) }
 label.file input { position: absolute; opacity: 0; width: 1px; height: 1px }
@@ -72,21 +74,20 @@ footer p { margin: 0; max-width: 90ch }
 <main>
   <div class="col">
     <section class="card" aria-labelledby="h-models">
-      <h2 id="h-models">1&nbsp;&middot; Models</h2>
+      <h2 id="h-models">Models &middot; built in</h2>
       <ul class="rack" id="rack"></ul>
-      <label class="file" for="models"><input id="models" type="file" accept=".onnx" multiple>
-        <strong>Load .onnx files&hellip;</strong><span>select all four at once</span></label>
-      <p class="hint">Download each model once using the links (GitHub), then load them here. They are read from disk and never uploaded. The models are licensed for non-commercial use only.</p>
+      <progress id="mprog" max="1" value="0" aria-label="Model download progress"></progress>
+      <p class="hint">The models come bundled with this page and load automatically (184&nbsp;MB, cached by your browser after the first visit). They run on this device. Licensed for non-commercial use only.</p>
     </section>
 
     <section class="card" aria-labelledby="h-src">
-      <h2 id="h-src">2&nbsp;&middot; Source face</h2>
+      <h2 id="h-src">1&nbsp;&middot; Source face</h2>
       <label class="file" for="srcfile"><input id="srcfile" type="file" accept="image/*"><strong>Choose photo&hellip;</strong><span id="srcname">the face to use</span></label>
       <div class="thumbwrap" id="srcwrap"><div class="empty">No photo yet</div></div>
     </section>
 
     <section class="card" aria-labelledby="h-tgt">
-      <h2 id="h-tgt">3&nbsp;&middot; Target photo</h2>
+      <h2 id="h-tgt">2&nbsp;&middot; Target photo</h2>
       <label class="file" for="tgtfile"><input id="tgtfile" type="file" accept="image/*"><strong>Choose photo&hellip;</strong><span id="tgtname">the photo to change</span></label>
       <div class="thumbwrap" id="tgtwrap"><div class="empty">No photo yet</div></div>
       <p class="hint" id="tgthint">Click faces to choose which to replace. Faces you don't select stay as they are.</p>
@@ -104,7 +105,7 @@ footer p { margin: 0; max-width: 90ch }
         <button class="btn primary" id="swap" disabled>Swap face</button>
         <button class="btn" id="save" disabled>Save PNG</button>
       </div>
-      <p class="status" id="status" role="status">Load the four models to begin.</p>
+      <p class="status" id="status" role="status">Loading the built-in models&hellip;</p>
     </section>
   </div>
 </main>
@@ -118,12 +119,11 @@ footer p { margin: 0; max-width: 90ch }
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const FF = "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/";
 const MODELS = [
-  { key: "det", label: "Face detector", match: /scrfd|retinaface|det_10g/i, file: "scrfd_2.5g.onnx", size: "3 MB" },
-  { key: "arc", label: "Identity (ArcFace)", match: /arcface|w600k/i, file: "arcface_w600k_r50.onnx", size: "166 MB" },
-  { key: "swap", label: "Face swapper", match: /inswapper/i, file: "inswapper_128_fp16.onnx", size: "265 MB" },
-  { key: "nsfw", label: "Content safeguard", match: /nsfw/i, file: "open_nsfw.onnx", size: "23 MB" },
+  { key: "det", label: "Face detector (SCRFD)" },
+  { key: "arc", label: "Identity (ArcFace)" },
+  { key: "swap", label: "Face swapper (inswapper)" },
+  { key: "nsfw", label: "Content safeguard" },
 ];
 const T = {
   arc112: [[0.34191607,0.46157411],[0.65653393,0.45983393],[0.50022500,0.64050536],[0.37097589,0.82469196],[0.63151696,0.82325089]],
@@ -137,66 +137,54 @@ ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardw
 function status(msg, cls = "") { const s = $("status"); s.textContent = msg; s.className = "status " + cls; }
 const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
-function renderRack() {
+function renderRack(progress = {}) {
   $("rack").innerHTML = "";
   for (const m of MODELS) {
     const li = document.createElement("li");
-    const st = S.sess[m.key];
-    li.className = st ? "ok" : "";
+    li.className = S.sess[m.key] ? "ok" : (progress[m.key] === "error" ? "err" : "");
     li.innerHTML = `<span class="dot"></span><span></span><span class="meta"></span>`;
     li.children[1].textContent = m.label;
-    if (st) li.children[2].textContent = "loaded";
-    else {
-      const a = document.createElement("a");
-      a.href = FF + m.file; a.target = "_blank"; a.rel = "noopener"; a.textContent = `${m.file}&nbsp;&middot; ${m.size}`;
-      li.children[2].appendChild(a);
-    }
+    li.children[2].textContent = S.sess[m.key] ? "ready" : (typeof progress[m.key] === "string" ? progress[m.key] : "waiting");
     $("rack").appendChild(li);
   }
 }
 
-// ---- minimal ONNX protobuf walk: last float initializer of the graph (inswapper "emap") ----
-function varint(b, p) { let x = 0, s = 1; for (;;) { const c = b[p.i++]; x += (c & 127) * s; if (c < 128) return x; s *= 128; } }
-function fields(b, start, end, cb) {
-  const p = { i: start };
-  while (p.i < end) {
-    const tag = varint(b, p), f = Math.floor(tag / 8), w = tag & 7;
-    if (w === 0) cb(f, w, varint(b, p));
-    else if (w === 1) p.i += 8;
-    else if (w === 5) p.i += 4;
-    else if (w === 2) { const len = varint(b, p); cb(f, w, p.i, p.i + len); p.i += len; }
-    else throw new Error("bad protobuf wire type");
+async function loadBundledModels() {
+  const progress = {};
+  try {
+    const man = await (await fetch("models/manifest.json")).json();
+    const total = Object.values(man).reduce((n, m) => n + m.bytes, 0) + 512 * 512 * 4;
+    let done = 0;
+    const bump = (n) => { done += n; $("mprog").value = done / total;
+      status(`Loading built-in models… ${(done / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB`); };
+    async function fetchBytes(url) {
+      const r = await fetch(url); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+      const rd = r.body.getReader(), chunks = []; let n = 0;
+      for (;;) { const { done: d, value } = await rd.read(); if (d) break; chunks.push(value); n += value.length; bump(value.length); }
+      const out = new Uint8Array(n); let o = 0; for (const c of chunks) { out.set(c, o); o += c.length; } return out;
+    }
+    S.emap = new Float32Array((await fetchBytes("models/emap.wasm")).buffer);
+    for (const m of MODELS) {
+      const info = man[m.key]; progress[m.key] = "downloading"; renderRack(progress);
+      const buf = new Uint8Array(info.bytes); let o = 0;
+      for (const part of info.parts) { const b = await fetchBytes("models/" + part); buf.set(b, o); o += b.length; }
+      if (o !== info.bytes) throw new Error(`${m.key}: incomplete download`);
+      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))].map((x) => x.toString(16).padStart(2, "0")).join("");
+      if (hash !== info.sha256) throw new Error(`${m.key}: checksum mismatch, reload the page`);
+      progress[m.key] = "starting"; renderRack(progress); await frame();
+      S.sess[m.key] = await ort.InferenceSession.create(buf, { executionProviders: ["wasm"], graphOptimizationLevel: "all",
+        extra: { session: { disable_quant_qdq: "1" } } });
+      renderRack(progress);
+    }
+    $("mprog").hidden = true;
+    status("Models ready. Choose a source face and a target photo.", "ok");
+    if (S.src && !S.srcFaces.length) analyzeSource(); if (S.tgt && !S.tgtFaces.length) analyzeTarget();
+  } catch (e) {
+    for (const m of MODELS) if (!S.sess[m.key]) progress[m.key] = "error";
+    renderRack(progress); status(`Could not load the built-in models: ${e.message || e}`, "err"); console.error(e);
   }
-}
-function readEmap(buf) {
-  const b = new Uint8Array(buf); let graph = null, last = null;
-  fields(b, 0, b.length, (f, w, s, e) => { if (f === 7 && w === 2) graph = [s, e]; });
-  if (!graph) throw new Error("not an ONNX model");
-  fields(b, graph[0], graph[1], (f, w, s, e) => { if (f === 5 && w === 2) last = [s, e]; });
-  let raw = null, dims = [];
-  fields(b, last[0], last[1], (f, w, s, e) => { if (f === 1 && w === 0) dims.push(s); if (f === 9 && w === 2) raw = [s, e]; });
-  if (!raw || dims[0] !== 512 || dims[1] !== 512) throw new Error("inswapper embedding map not found");
-  return new Float32Array(buf.slice(raw[0], raw[1]));
-}
-
-$("models").addEventListener("change", async (ev) => {
-  for (const file of ev.target.files) {
-    const m = MODELS.find((x) => x.match.test(file.name));
-    if (!m) { status(`Skipped ${file.name}: not one of the four models.`, "err"); continue; }
-    try {
-      status(`Loading ${file.name} (${(file.size / 1048576).toFixed(0)} MB)&hellip;`); await frame();
-      const buf = await file.arrayBuffer();
-      if (m.key === "swap") S.emap = readEmap(buf);
-      S.sess[m.key] = await ort.InferenceSession.create(new Uint8Array(buf), { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
-      renderRack();
-    } catch (e) { status(`Could not load ${file.name}: ${e.message || e}`, "err"); console.error(e); return; }
-  }
-  ev.target.value = "";
-  const missing = MODELS.filter((m) => !S.sess[m.key]);
-  status(missing.length ? `Still needed: ${missing.map((m) => m.file).join(", ")}` : "Models ready. Choose a source face and a target photo.", missing.length ? "" : "ok");
-  if (S.src && !S.srcFaces.length) analyzeSource(); if (S.tgt && !S.tgtFaces.length) analyzeTarget();
   refresh();
-});
+}
 
 // ---- image helpers ----
 async function fileToCanvas(file, maxSide = 2048) {
@@ -385,5 +373,5 @@ $("save").addEventListener("click", async () => {
   }
 });
 
-renderRack(); refresh();
+renderRack(); refresh(); loadBundledModels();
 </script>
