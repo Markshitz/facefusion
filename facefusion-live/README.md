@@ -25,21 +25,47 @@ settings, logs and models are kept in `FaceFusionLive\data\`, and nothing is wri
 Delete the folder to remove everything. To skip the download prompt, you can copy existing `.onnx` files into
 `data\models\`.
 
-## Run in a browser (no installation, nothing to load, image swap)
+## Run in a browser (no installation, nothing to load)
 
-`web/index.html` runs the same SCRFD → ArcFace → inswapper pipeline with ONNX Runtime Web (WebAssembly), and the
-models are **built in**. You open the page, pick two photos and swap. The bundle is 203 MB (now including GPEN restoration) and the browser caches it
-after the first visit. Nothing is uploaded.
+`web/index.html` runs the same SCRFD → ArcFace → inswapper → GPEN pipeline in the browser with ONNX Runtime Web
+1.30, and the models are **built in** (203 MB, cached by the browser after the first visit). Nothing is uploaded.
 
-- `web/build_web_models.py <models_dir> web/models` builds the bundle. Large weights are stored as int8 with a
-  per-channel scale and expanded back to fp32 when the model loads, so inference runs at full precision. Measured
-  against the originals: swapper output PSNR 46 dB, ArcFace cosine 0.9997, NSFW probabilities within 0.001. (Full
-  int8 activation quantization was rejected: PSNR 15 dB, 5× slower.) Parts are under 15 MB and named `.wasm`,
-  because the artifact host only serves known binary types. The page verifies a SHA-256 checksum per model.
-- `web/fetch_runtime.sh` fetches the ONNX Runtime Web files; then serve `web/` locally, or publish it as an
-  artifact.
-- Webcam and video need the desktop or portable build: artifacts cannot use the camera, and the page can't keep the
-  audio track.
+- **Photo swap:** source photo onto target photo. Quality: Fast, Balanced, High (default) or Max. Progress bar with
+  time left; full-resolution output; Save PNG with an "AI-generated" label.
+- **Live webcam:** real-time swap of the camera feed (largest face or every face), with a burned-in "AI-generated"
+  label, landmark smoothing, FPS and latency display, Show original toggle, camera picker and a content check every
+  10 s.
+  - **Inside claude.ai the camera is blocked.** Artifacts are not allowed to use the camera, and the page explains
+    this.
+  - **Live works on a normal web address.** Deploy to GitHub Pages (below) or serve `web/` locally.
+- **Speed:** models run in a Web Worker, so the page stays responsive. They use the graphics card through WebGPU
+  when the browser supports it; the detector, swapper and restorer each do a test run and fall back to CPU if it
+  fails or takes over 15 s.
+  - The CPU path uses up to 4 threads on hosts where `coi-sw.js` can enable cross-origin isolation.
+  - Measured on a 4-core sandbox CPU (no GPU): about 3 s per live frame at 640×360 with 4 threads, 11 s with 1
+    thread. That is a slow preview, not smooth video. Real-time needs a GPU (WebGPU); GPU frame rates are **not
+    measured yet**.
+- **Choosing the processor:** "Processor: CPU only" forces CPU if a GPU driver misbehaves.
+
+**GitHub Pages (enables Live webcam):** `.github/workflows/facefusion-live-web.yml` builds the site:
+1. It downloads the models, runs `build_web_models.py` and `fetch_runtime.sh`, and adds the HTML wrapper.
+2. It deploys from the default branch.
+
+One-time setup: *Settings › Pages › Source: GitHub Actions*. The site is then
+`https://<owner>.github.io/<repo>/`. Deploying publishes the model weights publicly; they are licensed for
+non-commercial use only.
+
+**Model bundle:** `web/build_web_models.py <models_dir> web/models` stores large weights as int8 with a per-channel
+scale. They are expanded to fp32 when the model loads, so inference runs at full precision. Measured against the
+originals:
+
+| Model | Agreement |
+|---|---|
+| Swapper | 46 dB PSNR |
+| GPEN | 44 dB PSNR |
+| ArcFace | cosine 0.9997 |
+
+Parts are under 15 MB and named `.wasm`, because the artifact host only serves known binary types.
 
 ## Install (Windows, no Python needed)
 

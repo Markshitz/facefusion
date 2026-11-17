@@ -17,12 +17,23 @@
   --bg: #12141a; --panel: #1a1d25; --line: #2b303c; --fg: #e8eaf0; --muted: #9aa3b5;
   --accent: #8b87ff; --accent-fg: #0f1020; --ok: #34d399; --warn: #fbbf24; --bad: #f87171; --plate: #0c0e13; color-scheme: dark }
 * { box-sizing: border-box }
+[hidden] { display: none !important }
 body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--body); margin: 0;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px }
 header { max-width: 1280px; margin: 0 auto 18px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; justify-content: space-between }
 h1 { font: 700 22px/1.2 var(--display); margin: 0; letter-spacing: -.01em }
 h1 small { font: 500 12px var(--mono); color: var(--muted); margin-left: 8px; letter-spacing: 0 }
 .lede { color: var(--muted); margin: 0; max-width: 62ch }
+.tabs { flex-basis: 100%; display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-top: 6px }
+.tabs button { font: 600 13.5px var(--body); color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; margin-bottom: -1px }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent) }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.activity { gap: 6px }
+.activity:has(#job[hidden]) .status:empty { display: none }
+.plate.live { min-height: 300px; background: #000 }
+.plate.live canvas { width: 100%; max-height: 70vh; object-fit: contain }
+.livestats { font: 12px var(--mono); color: var(--muted); min-height: 1.4em; font-variant-numeric: tabular-nums }
+.livestats b { color: var(--fg); font-weight: 500 }
 main { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 18px }
 @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr) } }
 section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; min-width: 0 }
@@ -86,7 +97,11 @@ footer p { margin: 0; max-width: 90ch }
 
 <header>
   <h1>FaceFusion Live <small>web&nbsp;&middot; runs in your browser</small></h1>
-  <p class="lede">Swap a face from one photo onto another. Nothing is uploaded: the models and photos stay on this device.</p>
+  <p class="lede">Swap a face onto a photo or your live webcam. Nothing is uploaded: the models, photos and video stay on this device.</p>
+  <nav class="tabs" role="tablist" aria-label="Mode">
+    <button role="tab" id="tab-photo" aria-selected="true" aria-controls="photo-panel">Photo swap</button>
+    <button role="tab" id="tab-live" aria-selected="false" aria-controls="live-panel">Live webcam</button>
+  </nav>
 </header>
 
 <main>
@@ -103,7 +118,7 @@ footer p { margin: 0; max-width: 90ch }
       <div class="thumbwrap" id="srcwrap"><div class="empty">No photo yet</div></div>
     </section>
 
-    <section class="card" aria-labelledby="h-tgt">
+    <section class="card photo-only" aria-labelledby="h-tgt">
       <h2 id="h-tgt">2&nbsp;&middot; Target photo</h2>
       <label class="file" for="tgtfile"><input id="tgtfile" type="file" accept="image/*"><strong>Choose photo&hellip;</strong><span id="tgtname">the photo to change</span></label>
       <div class="thumbwrap" id="tgtwrap"><div class="empty">No photo yet</div></div>
@@ -112,7 +127,15 @@ footer p { margin: 0; max-width: 90ch }
   </div>
 
   <div class="col">
-    <section class="card" aria-labelledby="h-res">
+    <section class="card activity" aria-label="Progress">
+      <div class="job" id="job" hidden>
+        <div class="bar" role="progressbar" aria-labelledby="jobtitle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="jobbar"><div class="fill" id="jobfill"></div><div class="stripes"></div></div>
+        <div class="meta"><span><strong id="jobtitle"></strong> <span id="jobstep"></span></span><span id="jobtime"></span></div>
+      </div>
+      <p class="status" id="status" role="status">Loading the built-in models&hellip;</p>
+    </section>
+
+    <section class="card photo-only" id="photo-panel" role="tabpanel" aria-labelledby="h-res">
       <h2 id="h-res">Result&nbsp;&middot; drag to compare</h2>
       <div class="plate" id="plate"><div class="empty">Your result appears here.</div><div class="busy" id="busy" hidden aria-hidden="true"><b id="busypct">0%</b><span id="busylbl">Working</span></div></div>
       <div class="slider"><label for="quality">Quality</label><select id="quality">
@@ -128,21 +151,36 @@ footer p { margin: 0; max-width: 90ch }
         <button class="btn primary" id="swap" disabled>Swap face</button>
         <button class="btn" id="save" disabled>Save PNG</button>
       </div>
-      <div class="job" id="job" hidden>
-        <div class="bar" role="progressbar" aria-labelledby="jobtitle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="jobbar"><div class="fill" id="jobfill"></div><div class="stripes"></div></div>
-        <div class="meta"><span><strong id="jobtitle"></strong> <span id="jobstep"></span></span><span id="jobtime"></span></div>
+    </section>
+
+    <section class="card live-only" id="live-panel" role="tabpanel" aria-labelledby="h-live" hidden>
+      <h2 id="h-live">Live webcam&nbsp;&middot; real-time swap</h2>
+      <div class="plate live" id="liveplate"><div class="empty" id="liveempty">Choose a source face, tick consent and press Start camera.</div>
+        <canvas id="livecanvas" hidden></canvas></div>
+      <div class="livestats" id="livestats" aria-live="off"></div>
+      <div class="slider"><label for="camsel">Camera</label><select id="camsel"><option value="">Default camera</option></select><span></span></div>
+      <div class="slider"><label for="proc">Processor</label><select id="proc">
+        <option value="auto">Automatic (graphics card when available)</option><option value="cpu">CPU only</option></select><span></span></div>
+      <div class="slider"><label for="camres">Resolution</label><select id="camres">
+        <option value="640x480" selected>640&times;480 (fastest)</option><option value="1280x720">1280&times;720</option></select><span></span></div>
+      <label class="consent"><input id="liveall" type="checkbox"> <span>Swap every face (otherwise only the largest)</span></label>
+      <label class="consent"><input id="liverestore" type="checkbox"> <span>Detail restoration (sharper, much slower)</span></label>
+      <label class="consent"><input id="liveconsent" type="checkbox"> <span>I have the consent of every person whose face is used or shown. The preview carries a visible "AI-generated" label.</span></label>
+      <div class="row">
+        <button class="btn primary" id="livestart" disabled>Start camera</button>
+        <button class="btn" id="livebypass" disabled aria-pressed="false">Show original</button>
       </div>
-      <p class="status" id="status" role="status">Loading the built-in models&hellip;</p>
+      <p class="status" id="livemsg" role="status"></p>
     </section>
   </div>
 </main>
 
 <footer>
   <p>Same models and pipeline as the FaceFusion Live desktop app (SCRFD &rarr; ArcFace &rarr; inswapper). Explicit content is refused. Saved images carry a visible "AI-generated" label.</p>
-  <p>For live webcam and video with audio, use the desktop app's portable build, which also runs without installation.</p>
+  <p>Inside claude.ai, artifacts are not allowed to use the camera, so Live webcam works when this page is opened from its own web address (for example GitHub Pages) or in the desktop app's portable build, which also handles video with audio and needs no installation.</p>
 </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.wasm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.wasm.min.js"></script>
 <script type="text/plain" id="worker-src">
 // Runs ONNX Runtime off the main thread so the page (and its progress bar) stays responsive.
 let sess = {};
@@ -150,10 +188,18 @@ onmessage = async (e) => {
   const m = e.data;
   try {
     if (m.type === "init") {
-      importScripts(m.ortUrl); ort.env.wasm.wasmPaths = m.base; ort.env.wasm.numThreads = 1;
+      importScripts(m.ortUrl); ort.env.wasm.wasmPaths = m.base; ort.env.wasm.numThreads = m.threads || 1;
       postMessage({ id: m.id, ok: true });
     } else if (m.type === "create") {
-      const s = await ort.InferenceSession.create(m.bytes, m.opts); sess[m.key] = s;
+      const s = await ort.InferenceSession.create(m.bytes, m.opts);
+      if (m.warm) {  // prove the GPU session works (and is not pathologically slow) before using it
+        const feeds = {}, t0 = performance.now();
+        for (const [k, v] of Object.entries(m.warm)) feeds[k] = new ort.Tensor("float32", new Float32Array(v.reduce((a, b) => a * b, 1)), v);
+        await Promise.race([s.run(feeds), new Promise((_, rej) => setTimeout(() => rej(new Error("GPU test run timed out")), m.warmTimeout || 15000))]);
+        postMessage({ id: m.id, ok: true, inputNames: s.inputNames, outputNames: s.outputNames, warmMs: performance.now() - t0 });
+        sess[m.key] = s; return;
+      }
+      sess[m.key] = s;
       postMessage({ id: m.id, ok: true, inputNames: s.inputNames, outputNames: s.outputNames });
     } else if (m.type === "run") {
       const feeds = {}; for (const [k, v] of Object.entries(m.feeds)) feeds[k] = new ort.Tensor(v.type, v.data, v.dims);
@@ -166,6 +212,14 @@ onmessage = async (e) => {
 </script>
 <script>
 "use strict";
+// On a normal web host, enable multi-threaded CPU inference via a service worker (once; never inside claude.ai).
+(function enableIsolation() {
+  if (self.crossOriginIsolated || window.top !== window.self || !("serviceWorker" in navigator) || !window.isSecureContext) return;
+  let tried = false; try { tried = sessionStorage.getItem("ffl-coi") === "1"; } catch (e) {}
+  navigator.serviceWorker.register("coi-sw.js").then(() => {
+    if (!tried && !navigator.serviceWorker.controller) { try { sessionStorage.setItem("ffl-coi", "1"); } catch (e) {} location.reload(); }
+  }, () => {});
+})();
 const $ = (id) => document.getElementById(id);
 const MODELS = [
   { key: "det", label: "Face detector (SCRFD)" },
@@ -184,9 +238,16 @@ const S = { sess: {}, emap: null, src: null, srcFaces: [], srcIdx: 0, tgt: null,
 ort.env.wasm.wasmPaths = new URL("./", location.href).href;
 ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
 
+// Heavy models try the GPU (with a test run of these input shapes); ArcFace and the content check stay on CPU.
+const GPU_WARM = { det: { input: [1, 3, 320, 320] }, swap: { target: [1, 3, 128, 128], source: [1, 512] }, enh: { input: [1, 3, 256, 256] } };
+const cpuOnly = () => { try { return localStorage.getItem("ffl-cpu") === "1"; } catch (e) { return false; } };
 // ---- inference backend: a Web Worker when possible (keeps the UI live), else the main thread ----
 const Backend = {
-  worker: null, seq: 0, pending: new Map(),
+  worker: null, seq: 0, pending: new Map(), gpu: false, onGpu: new Set(), threads: 1,
+  get label() {
+    const cpu = `CPU, ${this.threads > 1 ? this.threads + " threads" : "1 thread"}`;
+    return this.onGpu.has("swap") ? `graphics card (WebGPU) + ${cpu}` : cpu;
+  },
   call(msg, transfer = []) {
     return new Promise((resolve, reject) => { const id = ++this.seq; this.pending.set(id, { resolve, reject });
       this.worker.postMessage({ ...msg, id }, transfer); });
@@ -198,13 +259,28 @@ const Backend = {
       this.worker.onmessage = (e) => { const p = this.pending.get(e.data.id); if (!p) return; this.pending.delete(e.data.id);
         e.data.ok ? p.resolve(e.data) : p.reject(new Error(e.data.error)); };
       this.worker.onerror = (e) => { for (const p of this.pending.values()) p.reject(new Error(e.message || "worker error")); this.pending.clear(); };
-      await Promise.race([this.call({ type: "init", ortUrl: document.querySelector('script[src*="onnxruntime-web"]').src, base: ort.env.wasm.wasmPaths }),
+      // WebGPU needs the larger JSEP runtime next to the page; artifacts can't host it (15 MB file limit), web hosts can.
+      let ortUrl = document.querySelector('script[src*="onnxruntime-web"]').src;
+      try {
+        const has = await fetch("ort-wasm-simd-threaded.asyncify.wasm", { method: "HEAD" }).then((r) => r.ok, () => false);
+        if (has && navigator.gpu && await navigator.gpu.requestAdapter()) { ortUrl = ortUrl.replace("ort.wasm.min.js", "ort.webgpu.min.js"); this.gpu = true; }
+      } catch (e) { this.gpu = false; }
+      this.threads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+      await Promise.race([this.call({ type: "init", ortUrl, base: ort.env.wasm.wasmPaths, threads: this.threads }),
         new Promise((_, rej) => setTimeout(() => rej(new Error("worker timeout")), 15000))]);
     } catch (e) { console.warn("Worker unavailable, running models on the page:", e); this.worker?.terminate(); this.worker = null; }
   },
   async create(key, bytes, opts) {
     if (!this.worker) return ort.InferenceSession.create(bytes, opts);
-    const info = await this.call({ type: "create", key, bytes, opts }, [bytes.buffer]);
+    let info;
+    const warm = GPU_WARM[key];
+    if (this.gpu && warm && !cpuOnly()) {
+      const warmTimeout = Number(new URLSearchParams(location.search).get("gputimeout")) || 15000;  // test hook
+      try { info = await this.call({ type: "create", key, bytes: bytes.slice(), opts: { ...opts, executionProviders: ["webgpu", "wasm"] }, warm, warmTimeout });
+        this.onGpu.add(key); }
+      catch (e) { console.warn(`WebGPU failed for ${key}, using CPU:`, e); }
+    }
+    if (!info) info = await this.call({ type: "create", key, bytes, opts }, [bytes.buffer]);
     const self = this;
     return { inputNames: info.inputNames, outputNames: info.outputNames,
       async run(feeds) {
@@ -254,7 +330,10 @@ const Job = {
   },
 };
 const fmtS = (s) => s < 60 ? `${Math.max(0, Math.round(s))} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
-const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+// Yield so the page can repaint. Animation frames can be throttled in cross-origin iframes (as inside claude.ai),
+// so a short timer guarantees we never stall waiting for one.
+const frame = () => new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; setTimeout(r, 0); } };
+  requestAnimationFrame(go); setTimeout(go, 50); });
 
 function renderRack(progress = {}) {
   $("rack").innerHTML = "";
@@ -290,8 +369,10 @@ async function loadBundledModels() {
       const buf = new Uint8Array(info.bytes); let o = 0;
       for (const part of info.parts) { const b = await fetchBytes("models/" + part); buf.set(b, o); o += b.length; }
       if (o !== info.bytes) throw new Error(`${m.key}: incomplete download`);
-      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))].map((x) => x.toString(16).padStart(2, "0")).join("");
-      if (hash !== info.sha256) throw new Error(`${m.key}: checksum mismatch, reload the page`);
+      if (self.crypto?.subtle) {  // checksum needs a secure (https) page; the size check above always runs
+        const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))].map((x) => x.toString(16).padStart(2, "0")).join("");
+        if (hash !== info.sha256) throw new Error(`${m.key}: checksum mismatch, reload the page`);
+      }
       progress[m.key] = "starting"; renderRack(progress); await Job.step(`starting ${m.label}`);
       S.sess[m.key] = await Backend.create(m.key, buf, { executionProviders: ["wasm"], graphOptimizationLevel: "all",
         extra: { session: { disable_quant_qdq: "1" } } });
@@ -303,7 +384,7 @@ async function loadBundledModels() {
     if (S.tgt && !S.tgtFaces.length) await analyzeTarget();
   } catch (e) {
     for (const m of MODELS) if (!S.sess[m.key]) progress[m.key] = "error";
-    S.loadingModels = false; renderRack(progress); Job.finish(`Could not load the built-in models: ${e.message || e}. Reload the page to try again.`, "err"); console.error(e);
+    S.loadingModels = false; S.modelError = true; renderRack(progress); Job.finish(`Could not load the built-in models: ${e.message || e}. Reload the page to try again.`, "err"); console.error(e);
   }
   refresh();
 }
@@ -345,8 +426,8 @@ function toTensor(canvas, mean, scale, layout = "nchw", bgr = false) {
 }
 
 // ---- models ----
-async function detect(canvas) {
-  const size = 640, s = size / Math.max(canvas.width, canvas.height);
+async function detect(canvas, size = 640) {
+  const s = size / Math.max(canvas.width, canvas.height);
   const c = document.createElement("canvas"); c.width = c.height = size; const g = c.getContext("2d");
   g.fillStyle = "#000"; g.fillRect(0, 0, size, size); g.drawImage(canvas, 0, 0, canvas.width * s, canvas.height * s);
   const sess = S.sess.det; const out = await sess.run({ [sess.inputNames[0]]: toTensor(c, [127.5, 127.5, 127.5], 1 / 128) });
@@ -453,7 +534,10 @@ function drawFaces(wrap, canvas, faces, selected, onPick) {
 const modelsReady = () => MODELS.every((m) => S.sess[m.key]);
 async function analyzeSource() {
   if (!S.src) return;
-  if (!modelsReady()) return; // detection runs automatically once the models have loaded
+  if (!modelsReady()) {  // detection runs automatically once the models have loaded
+    if (Job.active && !S.loadingModels) Job.finish(S.modelError ? "Photo opened, but the models failed to load. Reload the page." : "Photo opened. Faces are detected as soon as the models finish loading.", S.modelError ? "err" : "");
+    return;
+  }
   if (!Job.active) Job.start("Preparing source photo", 3);
   try {
     await Job.step("checking content"); await nsfwCheck(S.src, "source photo"); Job.advance();
@@ -468,7 +552,10 @@ function showSource() { if (S.src) drawFaces($("srcwrap"), S.src, S.srcFaces, ne
   S.srcIdx = i; if (!S.srcFaces[i].emb) S.srcFaces[i].emb = await embed(S.src, S.srcFaces[i].kps); showSource(); }); }
 async function analyzeTarget() {
   if (!S.tgt) return;
-  if (!modelsReady()) return;
+  if (!modelsReady()) {  // detection runs automatically once the models have loaded
+    if (Job.active && !S.loadingModels) Job.finish(S.modelError ? "Photo opened, but the models failed to load. Reload the page." : "Photo opened. Faces are detected as soon as the models finish loading.", S.modelError ? "err" : "");
+    return;
+  }
   if (!Job.active) Job.start("Preparing target photo", 3);
   try {
     await Job.step("checking content"); await nsfwCheck(S.tgt, "target photo"); Job.advance();
@@ -493,6 +580,7 @@ $("tgtfile").addEventListener("change", async (e) => { const f = e.target.files[
   if (c) { S.tgt = c; S.tgtFaces = []; S.result = null; showTarget(); showResult(); if (!S.loadingModels) Job.total = 3; await analyzeTarget(); } S.busy = false; refresh(); });
 
 function refresh() {
+  if (typeof refreshLive === "function" && $("livestart")) refreshLive();
   $("swap").disabled = S.busy || !(modelsReady() && S.srcFaces.length && S.tgtFaces.length && S.sel.size && $("consent").checked);
   $("save").disabled = S.busy || !S.result;
 }
@@ -550,5 +638,130 @@ $("save").addEventListener("click", async () => {
   }
 });
 
+// ---- tabs ----
+function setMode(mode) {
+  const live = mode === "live";
+  $("tab-photo").setAttribute("aria-selected", String(!live)); $("tab-live").setAttribute("aria-selected", String(live));
+  document.querySelectorAll(".photo-only").forEach((e) => (e.hidden = live));
+  document.querySelectorAll(".live-only").forEach((e) => (e.hidden = !live));
+  if (!live && L.running) stopLive();
+  try { localStorage.setItem("ffl-mode", mode); } catch (e) {}
+  refreshLive();
+}
+$("tab-photo").addEventListener("click", () => setMode("photo"));
+$("tab-live").addEventListener("click", () => setMode("live"));
+
+// ---- live webcam ----
+const L = { running: false, stream: null, video: null, frames: 0, t0: 0, fps: 0, lat: 0, last: [], bypass: false, lastCheck: 0 };
+function refreshLive() {
+  $("livestart").disabled = !L.running && !(modelsReady() && S.srcFaces.length && $("liveconsent").checked);
+  $("livestart").textContent = L.running ? "Stop camera" : "Start camera";
+  $("livestart").className = "btn " + (L.running ? "" : "primary");
+  $("livebypass").disabled = !L.running;
+  if (!L.running && !$("livemsg").classList.contains("err")) $("livemsg").textContent = !modelsReady() ? "Waiting for the models to finish loading\u2026"
+    : !S.srcFaces.length ? "Choose a source face photo first (left)." : !$("liveconsent").checked ? "Tick the consent box to enable the camera." : "";
+}
+$("liveconsent").addEventListener("change", () => { $("livemsg").className = "status"; refreshLive(); });
+$("livebypass").addEventListener("click", () => { L.bypass = !L.bypass; $("livebypass").setAttribute("aria-pressed", String(L.bypass));
+  $("livebypass").textContent = L.bypass ? "Show swap" : "Show original"; });
+$("livestart").addEventListener("click", () => (L.running ? stopLive() : startLive()));
+$("proc").value = cpuOnly() ? "cpu" : "auto";
+$("proc").addEventListener("change", () => {
+  try { localStorage.setItem("ffl-cpu", $("proc").value === "cpu" ? "1" : "0"); } catch (e) {}
+  $("livemsg").className = "status"; $("livemsg").textContent = "Processor setting saved. Reload the page to apply it.";
+});
+
+function cameraError(e) {
+  const inFrame = window.top !== window.self;
+  if (inFrame && (!navigator.mediaDevices?.getUserMedia || (e && (e.name === "NotAllowedError" || e.name === "SecurityError"))))
+    return "The camera is blocked here: claude.ai doesn't let artifacts use the camera. Open this page from its own web address (see the footer) or use the portable desktop app.";
+  if (e && (e.name === "NotAllowedError" || e.name === "SecurityError"))
+    return inFrame ? "The camera is blocked here: claude.ai doesn't let artifacts use the camera. Open this page from its own web address (see the footer) or use the portable desktop app."
+                   : "Camera permission was denied. Allow camera access for this site in the browser's address bar, then press Start camera again.";
+  if (e && e.name === "NotFoundError") return "No camera was found. Connect a webcam and press Start camera again.";
+  if (e && e.name === "NotReadableError") return "The camera is in use by another app (Zoom, Teams, OBS…). Close it and try again.";
+  if (!navigator.mediaDevices?.getUserMedia) return "This browser can't access a camera from this page.";
+  return `Could not start the camera: ${(e && e.message) || e}`;
+}
+async function listCameras() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput"), sel = $("camsel"), cur = sel.value;
+    sel.replaceChildren(...devs.map((d, i) => Object.assign(document.createElement("option"), { value: d.deviceId, textContent: d.label || `Camera ${i + 1}` })));
+    if (cur && devs.some((d) => d.deviceId === cur)) sel.value = cur;
+  } catch (e) { /* keep default entry */ }
+}
+async function startLive() {
+  $("livemsg").textContent = "Starting the camera\u2026";
+  const [w, h] = $("camres").value.split("x").map(Number), dev = $("camsel").value;
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("no getUserMedia");
+    L.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: w }, height: { ideal: h }, ...(dev ? { deviceId: { exact: dev } } : {}) } });
+  } catch (e) { $("livemsg").textContent = cameraError(e); $("livemsg").className = "status err"; return; }
+  listCameras();
+  L.video = Object.assign(document.createElement("video"), { muted: true, playsInline: true, srcObject: L.stream });
+  await L.video.play();
+  L.stream.getVideoTracks()[0].addEventListener("ended", () => { stopLive(); $("livemsg").textContent = "The camera was disconnected."; $("livemsg").className = "status err"; });
+  Object.assign(L, { running: true, frames: 0, t0: performance.now(), fps: 0, last: [], lastCheck: 0 });
+  $("liveempty").hidden = true; $("livecanvas").hidden = false; $("livemsg").className = "status";
+  $("livemsg").textContent = `Running on ${Backend.label}. Press Stop camera to turn the camera off.`;
+  refreshLive(); liveLoop();
+}
+function stopLive() {
+  L.running = false;
+  if (L.stream) L.stream.getTracks().forEach((t) => t.stop());
+  L.stream = null; L.video = null;
+  $("livecanvas").hidden = true; $("liveempty").hidden = false; $("liveempty").textContent = "Camera off.";
+  $("livestats").textContent = ""; $("livemsg").textContent = ""; $("livemsg").className = "status"; refreshLive();
+}
+// Smooth landmarks between frames (exponential, stronger when the face is still) to stop jitter.
+function smoothFaces(faces) {
+  const out = faces.map((f) => {
+    const prev = L.last.find((p) => iou(p.box, f.box) > 0.3);
+    if (!prev) return f;
+    const size = f.box[2] - f.box[0], move = Math.hypot(f.kps[2][0] - prev.kps[2][0], f.kps[2][1] - prev.kps[2][1]) / size;
+    const a = Math.min(1, 0.35 + move * 6);  // fast motion -> follow quickly
+    return { ...f, kps: f.kps.map((k, i) => [prev.kps[i][0] + (k[0] - prev.kps[i][0]) * a, prev.kps[i][1] + (k[1] - prev.kps[i][1]) * a]) };
+  });
+  L.last = out; return out;
+}
+async function liveLoop() {
+  const grab = document.createElement("canvas"), view = $("livecanvas");
+  let src = null, lat = null;
+  while (L.running && L.video) {
+    if (S.srcFaces[S.srcIdx] && S.srcFaces[S.srcIdx] !== src) {  // source changed while live
+      src = S.srcFaces[S.srcIdx]; if (!src.emb) src.emb = await embed(S.src, src.kps); lat = latent(src.emb);
+    }
+    const v = L.video;
+    if (v.readyState < 2 || !v.videoWidth) { await new Promise((r) => setTimeout(r, 30)); continue; }
+    const t0 = performance.now();
+    if (grab.width !== v.videoWidth) { grab.width = view.width = v.videoWidth; grab.height = view.height = v.videoHeight; }
+    grab.getContext("2d").drawImage(v, 0, 0);
+    try {
+      if (t0 - L.lastCheck > 10000) { L.lastCheck = t0; await nsfwCheck(grab, "camera image"); }
+      const out = document.createElement("canvas"); out.width = grab.width; out.height = grab.height; out.getContext("2d").drawImage(grab, 0, 0);
+      if (!L.bypass) {
+        let faces = smoothFaces(await detect(grab, 320));
+        if (!$("liveall").checked) faces = faces.slice(0, 1);
+        for (const f of faces) {
+          await swapOne(grab, out, f, lat, 1);
+          if ($("liverestore").checked) await restoreOne(out, f, 0.6);
+        }
+        L.faces = faces.length;
+      }
+      label(out);
+      if (!L.running) break;
+      view.getContext("2d").drawImage(out, 0, 0);
+    } catch (e) {
+      stopLive(); $("livemsg").textContent = e.message || String(e); $("livemsg").className = "status err"; break;
+    }
+    const now = performance.now(); L.frames++; L.lat = now - t0;
+    if (now - L.t0 > 1000) { L.fps = L.frames * 1000 / (now - L.t0); L.frames = 0; L.t0 = now; }
+    $("livestats").innerHTML = `<b>${L.fps.toFixed(1)}</b> FPS &middot; <b>${Math.round(L.lat)}</b> ms per frame &middot; ${L.bypass ? "original" : `${L.faces ?? 0} face(s)`} &middot; ${grab.width}&times;${grab.height} &middot; ${Backend.label}`;
+    await frame();
+  }
+}
+window.addEventListener("pagehide", () => { if (L.running) stopLive(); });
+
 renderRack(); refresh(); loadBundledModels();
+try { if (localStorage.getItem("ffl-mode") === "live") setMode("live"); } catch (e) {}
 </script>
