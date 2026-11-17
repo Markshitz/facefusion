@@ -17,6 +17,20 @@ All three modes share one engine (`core/engine.py`). Video and live modes also s
 
 ---
 
+## Download for Windows (single .exe, live webcam)
+
+**[FaceFusionLive.exe](https://github.com/Markshitz/facefusion/releases/download/windows-app/FaceFusionLive.exe)**
+is about 265 MB. Download it and double-click; there is nothing to install. It covers photo, video and **live
+webcam** swapping, plus a virtual camera for Zoom, Teams or OBS, and runs on NVIDIA, AMD or Intel graphics
+(DirectML) or the CPU.
+
+CI builds it and tests it with a real swap on Windows. It is republished to the
+[windows-app release](https://github.com/Markshitz/facefusion/releases/tag/windows-app) on every push, next to the
+DirectML and CUDA installers.
+
+On first launch it asks before downloading the models (about 450 MB). SmartScreen may warn because the file is not
+code-signed: choose *More info* › *Run anyway*.
+
 ## Run without installing (portable, Windows)
 
 Download the `FaceFusionLive-directml-portable` (or `-cuda-portable`) artifact, extract it anywhere (USB stick
