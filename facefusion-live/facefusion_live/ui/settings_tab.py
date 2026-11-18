@@ -56,7 +56,8 @@ class SettingsTab(QScrollArea):
         self.detector.setCurrentIndex(max(self.detector.findData(s.detector), 0))
         self.swapper = QComboBox()
         for t, d in [("Automatic (FP16 on GPU, FP32 on CPU)", "auto"), ("inswapper 128 FP32", "inswapper_128"),
-                     ("inswapper 128 FP16", "inswapper_128_fp16")]:
+                     ("inswapper 128 FP16", "inswapper_128_fp16"), ("HyperSwap 1a 256 (FaceFusion, research use)", "hyperswap_1a_256"),
+                     ("HyperSwap 1b 256", "hyperswap_1b_256"), ("HyperSwap 1c 256", "hyperswap_1c_256")]:
             self.swapper.addItem(t, d)
         self.swapper.setCurrentIndex(max(self.swapper.findData(s.swapper), 0))
         self.det_size = QComboBox()

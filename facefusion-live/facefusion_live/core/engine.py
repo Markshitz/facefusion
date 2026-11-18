@@ -78,8 +78,11 @@ class FaceEngine:
 
     @property
     def swapper(self):
-        from facefusion_live.face_swap.inswapper import InSwapper
         name = self.swapper_name()
+        if name.startswith("hyperswap"):
+            from facefusion_live.face_swap.hyperswap import HyperSwapper
+            return self._mod("swap:" + name, lambda: HyperSwapper(self.sessions, self.store.require(name)))
+        from facefusion_live.face_swap.inswapper import InSwapper
         return self._mod("swap:" + name, lambda: InSwapper(self.sessions, self.store.require(name)))
 
     @property
@@ -171,7 +174,7 @@ class FaceEngine:
         s = self.settings
         original = frame if original is None else original
         boost = s.pixel_boost if s.pixel_boost in (1, 2, 4) else 1
-        size = 128 * boost
+        size = self.swapper.SIZE * boost
         crop, m = warp_face(original, target.kps, "arcface_128", size)
         out = self.swapper.swap(crop, source.latent, boost)
 
