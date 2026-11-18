@@ -56,7 +56,10 @@ class Settings:
     forehead_blend: float = 0.25      # 0..0.5 fade of the crop top into the original forehead (hides seams)
     occlusion_mask: bool = False      # XSeg occluder mask
     region_mask: bool = False         # BiSeNet face-parsing mask
-    mouth_preserve: bool = False      # keep the original inner mouth
+    mouth_preserve: bool = False      # keep the original mouth (see mouth_region)
+    mouth_region: str = "inner"       # inner = teeth/tongue/opening inside the inner lip line; lips = whole lips
+    landmarker: str = "2dfan4"        # 2dfan4 = 68 measured landmarks (precise lips/eyes); none = detector points
+    offline_smoothing: bool = True    # video export: zero-lag smoothing using neighbouring frames
     enhancer: str = "gpen_bfr_256"    # none | gpen_bfr_256 | gpen_bfr_512 | gfpgan_1.4 | codeformer
     enhance_strength: float = 0.7
     codeformer_fidelity: float = 0.7

@@ -64,6 +64,7 @@ class FaceTracker:
         self._next = 0
         self._frame = 0
         self.stats = {"full": 0, "roi": 0}
+        self._img = None
 
     def reset(self) -> None:
         self.tracks.clear()
@@ -100,6 +101,7 @@ class FaceTracker:
     def update(self, img: np.ndarray, dt: float = 1 / 30, need_embedding: bool = True) -> list[Face]:
         """Return faces visible in this frame (with track ids, smoothed kps, embeddings)."""
         st = self.engine.settings
+        self._img = img
         self._frame += 1
         interval = max(1, int(st.detect_interval)) if st.tracking else 1
         full = (not self.tracks) or self._frame % interval == 0 or all(t.missed for t in self.tracks)
@@ -120,6 +122,7 @@ class FaceTracker:
                 if ti not in used_t:
                     t.missed += 1
             for di in unmatched:
+                self._refine(dets[di])
                 t = Track(self._next, dets[di])
                 self._next += 1
                 dets[di].track_id = t.id
@@ -149,7 +152,14 @@ class FaceTracker:
             visible.append(t.face)
         return visible
 
+    def _refine(self, f: Face) -> None:
+        """Precise 68-point landmarks (lips, eyes) for this frame, if the engine provides them."""
+        refine = getattr(self.engine, "refine", None)
+        if refine is not None and self._img is not None:
+            refine(self._img, f)
+
     def _assign(self, t: Track, f: Face, dt: float) -> None:
+        self._refine(f)
         self._smooth(t, f, dt)
         f.track_id = t.id
         f.embedding = t.embedding

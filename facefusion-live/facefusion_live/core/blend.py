@@ -62,6 +62,33 @@ def mouth_mask(lm68_crop: np.ndarray, size: int, grow: float = 0.15) -> np.ndarr
     return cv2.GaussianBlur(m, (0, 0), k)
 
 
+def restore_mouth(frame: np.ndarray, original: np.ndarray, lm68: np.ndarray, region: str = "inner") -> None:
+    """Blend the original mouth back into `frame` (in-place), feathered, only around the mouth.
+
+    region "inner": inside the inner lip line (60-67) -> real teeth, tongue and mouth opening.
+    region "lips" : the outer lip line (48-59) -> the target's own lips as well.
+    """
+    pts = (lm68[60:68] if region == "inner" else lm68[48:60]).astype(np.float32)
+    width = float(np.linalg.norm(lm68[54] - lm68[48]))
+    if width < 4:
+        return
+    grow = 0.12 if region == "inner" else 0.06
+    c = pts.mean(0)
+    pts = c + (pts - c) * (1 + grow)
+    pad = int(width * 0.35) + 4
+    h, w = frame.shape[:2]
+    x0, y0 = np.floor(pts.min(0)).astype(int) - pad
+    x1, y1 = np.ceil(pts.max(0)).astype(int) + pad
+    x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w), min(y1, h)
+    if x1 <= x0 or y1 <= y0:
+        return
+    m = np.zeros((y1 - y0, x1 - x0), np.float32)
+    cv2.fillPoly(m, [(pts - (x0, y0)).astype(np.int32)], 1.0)
+    m = cv2.GaussianBlur(m, (0, 0), max(width * 0.04, 1.0))[:, :, None]
+    roi = frame[y0:y1, x0:x1].astype(np.float32)
+    frame[y0:y1, x0:x1] = (roi + (original[y0:y1, x0:x1].astype(np.float32) - roi) * m).astype(np.uint8)
+
+
 def color_transfer(src: np.ndarray, ref: np.ndarray, mask: np.ndarray, strength: float) -> np.ndarray:
     """Match LAB mean/std of src to ref inside mask. src/ref float32 BGR 0..255."""
     if strength <= 0:

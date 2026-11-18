@@ -99,6 +99,98 @@ def scan_people(engine: FaceEngine, path: str, samples: int = 24, threshold: flo
     return people
 
 
+def _fit_weights(offsets: list[int]) -> np.ndarray:
+    """Least-squares quadratic fit over neighbouring frames, evaluated at offset 0 (Savitzky-Golay).
+
+    Unlike an averaging filter this follows real motion (including acceleration) without lag, while
+    removing the frame-to-frame jitter of landmark detection.
+    """
+    o = np.asarray(offsets, np.float64)
+    deg = min(2, len(o) - 1)
+    v = np.vander(o, deg + 1, increasing=True)
+    return np.linalg.pinv(v)[0]
+
+
+class VideoSwapper:
+    """Turns a frame sequence into (frame, [(face, source)]) jobs with tracking and zero-lag smoothing.
+
+    Video is not live, so landmarks can be smoothed using frames on BOTH sides of the current one
+    (radius R=2): no trailing behind head turns, no jitter. Mouth landmarks stay per-frame so the
+    mouth mask follows speech exactly.
+    """
+
+    def __init__(self, engine: FaceEngine, mapping: FaceMapping, fps: float):
+        import copy
+        self.engine, self.mapping, self.dt = engine, mapping, 1.0 / max(float(fps), 1.0)
+        s = engine.settings
+        self.radius = 2 if (s.offline_smoothing and s.tracking) else 0
+        track_engine = engine
+        if self.radius:  # the tracker must not add its own (lagging) smoothing on top
+            track_engine = copy.copy(engine)
+            track_engine.settings = copy.copy(s)
+            track_engine.settings.smoothing = 0.0
+        self.tracker = FaceTracker(track_engine)
+        self.buf: deque = deque()
+        self.next = 0  # index in buf of the next frame to hand out
+
+    def push(self, frame: np.ndarray) -> list:
+        faces = self.tracker.update(frame, self.dt, need_embedding=self.mapping.needs_embeddings())
+        self.buf.append((frame, [_copy_face(f) for f in faces]))
+        out = []
+        while self.next <= len(self.buf) - 1 - self.radius:  # frame has its R future neighbours
+            out.append(self._job(self.next))
+            self.next += 1
+        while self.next > self.radius:  # keep only R past neighbours
+            self.buf.popleft()
+            self.next -= 1
+        return out
+
+    def flush(self) -> list:
+        out = []
+        while self.next < len(self.buf):
+            out.append(self._job(self.next))
+            self.next += 1
+        self.buf.clear()
+        self.next = 0
+        return out
+
+    def _job(self, c: int):
+        frame, faces = self.buf[c]
+        return frame, self.mapping.assign([self._smooth(f, c) for f in faces])
+
+    def _smooth(self, f, c: int):
+        if not self.radius or f.track_id < 0:
+            return f
+        offs, pts = [], []
+        for k, (_, faces) in enumerate(self.buf):
+            if abs(k - c) > self.radius:
+                continue
+            g = next((x for x in faces if x.track_id == f.track_id), None)
+            if g is not None:
+                offs.append(k - c)
+                pts.append(g.kps)
+        if len(offs) < 3:
+            return f
+        w = _fit_weights(offs)
+        g = _copy_face(f)
+        g.kps = np.tensordot(w, np.stack(pts), axes=1).astype(np.float32)
+        return g
+
+
+def _copy_face(f):
+    import copy
+    return copy.copy(f)
+
+
+def swap_frames(engine: FaceEngine, mapping: FaceMapping, frames: list, fps: float) -> list:
+    """In-memory version of the video pipeline (used by tools/fidelity_bench.py and tests)."""
+    vs, out = VideoSwapper(engine, mapping, fps), []
+    for fr in frames:
+        out += [engine.process(f, p) for f, p in vs.push(fr)]
+    out += [engine.process(f, p) for f, p in vs.flush()]
+    return out
+
+
 def process_video(engine: FaceEngine, mapping: FaceMapping, src: str, out: str,
                   progress: Optional[Callable[[Progress], None]] = None,
                   cancel: Optional[threading.Event] = None, start: float = 0.0, duration: Optional[float] = None,
@@ -118,8 +210,9 @@ def process_video(engine: FaceEngine, mapping: FaceMapping, src: str, out: str,
     if Path(out).suffix.lower() == ".avi":
         video_only = str(tmpdir / "v.mkv")
     writer = ff.open_writer(video_only, info.width, info.height, info.fps, encoder, s.video_quality, METADATA_COMMENT)
-    tracker = FaceTracker(engine)
     mapping.reset()
+    swapper = VideoSwapper(engine, mapping, float(info.fps))
+    tracker = swapper.tracker
     q_in: queue.Queue = queue.Queue(maxsize=8)
     q_out: queue.Queue = queue.Queue(maxsize=8)
     errors: list[BaseException] = []
@@ -180,10 +273,13 @@ def process_video(engine: FaceEngine, mapping: FaceMapping, src: str, out: str,
             fr = q_in.get()
             if fr is None or cancel.is_set():
                 break
-            faces = tracker.update(fr, dt, need_embedding=mapping.needs_embeddings())
-            pending.append(pool.submit(render, fr, mapping.assign(faces)))
-            while len(pending) > workers:
-                emit_one()
+            for job_frame, pairs in swapper.push(fr):
+                pending.append(pool.submit(render, job_frame, pairs))
+                while len(pending) > workers:
+                    emit_one()
+        if not cancel.is_set():
+            for job_frame, pairs in swapper.flush():
+                pending.append(pool.submit(render, job_frame, pairs))
         while pending and not cancel.is_set():
             emit_one()
         pool.shutdown(wait=True)

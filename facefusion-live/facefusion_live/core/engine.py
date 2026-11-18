@@ -10,8 +10,8 @@ import cv2
 import numpy as np
 
 from facefusion_live.app.config import Settings
-from facefusion_live.core.align import transform_points, warp_face
-from facefusion_live.core.blend import box_mask, color_transfer, forehead_fade, mouth_mask, paste_back
+from facefusion_live.core.align import warp_face
+from facefusion_live.core.blend import box_mask, color_transfer, forehead_fade, paste_back, restore_mouth
 from facefusion_live.core.face import Face
 from facefusion_live.inference.session import Sessions, provider_label, resolve_providers
 from facefusion_live.models.store import ModelStore
@@ -86,6 +86,24 @@ class FaceEngine:
     def landmarker(self):
         from facefusion_live.face_detection.landmarks import Landmark68From5
         return self._mod("lm68", lambda: Landmark68From5(self.sessions, self.store.require("fan_68_5")))
+
+    @property
+    def fan68(self):
+        from facefusion_live.face_detection.fan68 import FAN68
+        return self._mod("fan68", lambda: FAN68(self.sessions, self.store.require("2dfan4")))
+
+    def refine(self, img: np.ndarray, face: Face) -> Face:
+        """Measure 68 landmarks and align with points derived from them (eyes, nose tip, mouth corners).
+
+        The detector's 5 points are coarse; measured landmarks follow lips and head motion precisely.
+        """
+        if self.settings.landmarker == "2dfan4" and self.store.is_installed("2dfan4"):
+            from facefusion_live.face_detection.fan68 import five_from_68
+            lm, score = self.fan68(img, face.bbox)
+            if score > 0.25:  # unreliable on heavy occlusion / extreme pose: keep detector points
+                face.landmarks68 = lm
+                face.kps = five_from_68(lm)
+        return face
 
     def restorer(self, name: str):
         from facefusion_live.enhancement.restorer import FaceRestorer
@@ -166,15 +184,20 @@ class FaceEngine:
             mask = np.minimum(mask, self.parser(crop))
         if s.color_match > 0:
             out = color_transfer(out, crop.astype(np.float32), mask, s.color_match)
-        if s.mouth_preserve and self.store.is_installed("fan_68_5"):
-            lm = target.landmarks68 if target.landmarks68 is not None else self.landmarker(target.kps)
-            mm = mouth_mask(transform_points(lm, m), size)
-            mask = mask * (1 - mm)
         mask *= float(np.clip(s.blend, 0, 1))
         paste_back(frame, out, mask, m)
 
         if s.enhancer != "none" and self.store.is_installed(s.enhancer):
             self.restorer(s.enhancer).enhance(frame, target.kps, s.enhance_strength, s.codeformer_fidelity)
+
+        # Real mouth last (after restoration, which could otherwise reshape it): the original teeth, tongue and
+        # mouth opening follow speech exactly.
+        if s.mouth_preserve:
+            lm = target.landmarks68
+            if lm is None and self.store.is_installed("fan_68_5"):
+                lm = self.landmarker(target.kps)
+            if lm is not None:
+                restore_mouth(frame, original, lm, s.mouth_region)
 
     def process(self, frame: np.ndarray, pairs: list[tuple[Face, SourceIdentity]]) -> np.ndarray:
         """Return a new frame with each (target, source) pair swapped."""
