@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from facefusion_live.face_swap import subgrid
 from facefusion_live.inference.session import Sessions
 
 
@@ -32,8 +33,6 @@ class HyperSwapper:
     def swap(self, crop_bgr: np.ndarray, latent: np.ndarray, boost: int = 1) -> np.ndarray:
         if boost == 1:
             return self._run(crop_bgr, latent)
-        out = np.empty(crop_bgr.shape, np.float32)
-        for i in range(boost):
-            for j in range(boost):
-                out[i::boost, j::boost] = self._run(np.ascontiguousarray(crop_bgr[i::boost, j::boost]), latent)
-        return out
+        ys = np.stack([self._run(np.ascontiguousarray(crop_bgr[i::boost, j::boost]), latent)
+                       for i in range(boost) for j in range(boost)])
+        return subgrid.assemble(crop_bgr.shape, ys, boost)

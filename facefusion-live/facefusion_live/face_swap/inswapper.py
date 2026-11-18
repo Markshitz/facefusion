@@ -6,11 +6,16 @@ N*128 output with real detail instead of an upscaled 128 px patch.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 
+from facefusion_live.face_swap import subgrid
+
 from facefusion_live.inference.session import Sessions
+
+log = logging.getLogger(__name__)
 
 
 def load_emap(path: Path) -> np.ndarray:
@@ -50,6 +55,8 @@ class InSwapper:
         self.path = Path(path)
         self.sess = sessions.get(path)
         self._batched: dict = {1: self.sess}
+        self._batch_ok = True  # set False if a batched run ever returns inconsistent sub-grids (seen on DirectML)
+        self._batch_verified = False
         self.emap = load_emap(path)
 
     def _session(self, batch: int):
@@ -78,9 +85,18 @@ class InSwapper:
         """
         if boost == 1:
             return self._run_batch([crop_bgr], latent)[0]
-        grid = [(i, j) for i in range(boost) for j in range(boost)]
-        ys = self._run_batch([np.ascontiguousarray(crop_bgr[i::boost, j::boost]) for i, j in grid], latent)
-        out = np.empty(crop_bgr.shape, np.float32)
-        for (i, j), y in zip(grid, ys):
-            out[i::boost, j::boost] = y
-        return out
+        grid = [np.ascontiguousarray(crop_bgr[i::boost, j::boost]) for i in range(boost) for j in range(boost)]
+        if self._batch_ok:
+            ys = self._run_batch(grid, latent)
+            bad = subgrid.mismatched(ys)
+            if not bad and not self._batch_verified:  # once per session: batched item 0 must equal a single run
+                self._batch_verified = True
+                single = self._run_batch([grid[0]], latent)[0]
+                bad = float(np.abs(single - ys[0]).mean()) > 2.0
+            if bad:  # the batched GPU run went wrong: never batch again, redo one at a time
+                log.warning("Batched pixel boost gave inconsistent results on this device; running sub-grids one by one")
+                self._batch_ok = False
+                ys = np.stack([self._run_batch([g], latent)[0] for g in grid])
+        else:
+            ys = np.stack([self._run_batch([g], latent)[0] for g in grid])
+        return subgrid.assemble(crop_bgr.shape, ys, boost)
