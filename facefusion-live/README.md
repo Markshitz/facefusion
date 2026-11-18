@@ -182,10 +182,37 @@ strength* trades the two:
 | 0.6 | 0.976 | 0.725 |
 | 0.35 | 0.951 | 0.754 |
 
-### Compared with the default pipelines of Deep-Live-Cam and FaceFusion
+### Compared with the real Deep-Live-Cam and FaceFusion programs
 
-These are **reconstructions of each tool's default settings run through this engine**, not runs of the tools
-themselves. Running downloaded third-party code was not permitted in the build environment. The settings come from
+The real tools were installed in separate virtual environments and run headless, with their own default settings,
+on the same 50-frame clips and source photo:
+- **Deep-Live-Cam** at commit `08896a5` (2026-11-08): `run.py -s source -t clip -o out --keep-fps`, on CPU, once
+  with defaults and once with `--mouth-mask`.
+- **FaceFusion 3.9.2**: `facefusion.py headless-run -s source -t clip -o out`, with all defaults (HyperSwap 1a).
+  The only change was disabling its GitHub reachability ping, because the build sandbox's proxy rejects it.
+
+Every output was then scored by the same `tools/fidelity_bench.py` metrics against the original frames.
+
+| Clip | Program | Lip-sync correlation | Lip error | Motion error | Identity |
+|---|---|---|---|---|---|
+| talking (d11) | Deep-Live-Cam (real, default) | 0.893 | 0.133 | 0.045 | **0.836** |
+| | Deep-Live-Cam (real, `--mouth-mask`) | 0.919 | 0.106 | 0.040 | 0.783 |
+| | FaceFusion 3.9.2 (real, default) | 0.912 | 0.070 | 0.030 | 0.687 |
+| | **FaceFusion Live (default)** | **0.991** | **0.027** | **0.019** | 0.729 |
+| fast head (d12) | Deep-Live-Cam (real, default) | 0.976 | 0.023 | 0.033 | **0.809** |
+| | Deep-Live-Cam (real, `--mouth-mask`) | 0.961 | 0.021 | 0.030 | 0.772 |
+| | FaceFusion 3.9.2 (real, default) | 0.968 | 0.039 | 0.037 | 0.625 |
+| | **FaceFusion Live (default)** | **0.994** | **0.009** | **0.019** | 0.707 |
+
+On both clips FaceFusion Live follows the lips and head motion more closely than both real programs on every lip and
+motion measure. Its motion error is about half of theirs. Deep-Live-Cam keeps a higher identity score because it
+pastes the source's own mouth shape without reshaping it to the speech. FaceFusion Live's identity is higher than
+real FaceFusion's.
+
+### Earlier: reconstructed defaults (same engine)
+
+Before the real programs could be run, each tool's default settings were reconstructed in this engine. The real runs
+above agree closely with these numbers. The settings come from
 each project's source code:
 - **Deep-Live-Cam:** inswapper on the detector's 5 points, re-detected every frame, no smoothing, mouth mask off, no
   enhancer.
