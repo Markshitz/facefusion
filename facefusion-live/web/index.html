@@ -115,7 +115,7 @@ footer p { margin: 0; max-width: 90ch }
     <section class="card" aria-labelledby="h-models">
       <h2 id="h-models">Models &middot; built in</h2>
       <ul class="rack" id="rack"></ul>
-      <p class="hint">The models come bundled with this page and load automatically (203&nbsp;MB, cached by your browser after the first visit). They run on this device. Licensed for non-commercial use only.</p>
+      <p class="hint">The models come bundled with this page and load automatically (205&nbsp;MB, cached by your browser after the first visit). They run on this device. Licensed for non-commercial use only.</p>
     </section>
 
     <section class="card" aria-labelledby="h-src">
@@ -175,6 +175,7 @@ footer p { margin: 0; max-width: 90ch }
       <div class="slider"><label for="vidstep">Frames</label><select id="vidstep">
         <option value="1" selected>Every frame (smoothest)</option><option value="2">Every 2nd frame (2&times; faster, half frame rate)</option></select><span></span></div>
       <p class="hint" id="videstimate"></p>
+      <label class="consent"><input id="vidlips" type="checkbox" checked> <span>Keep original lips (exact lip sync with the speech)</span></label>
       <label class="consent"><input id="vidconsent" type="checkbox"> <span>I have the consent of every person whose face is used or replaced. The video carries a visible "AI-generated" label.</span></label>
       <div class="row">
         <button class="btn primary" id="vidstart" disabled>Process video</button>
@@ -195,6 +196,7 @@ footer p { margin: 0; max-width: 90ch }
       <div class="slider"><label for="camres">Resolution</label><select id="camres">
         <option value="640x480" selected>640&times;480 (fastest)</option><option value="1280x720">1280&times;720</option></select><span></span></div>
       <label class="consent"><input id="liveall" type="checkbox"> <span>Swap every face (otherwise only the largest)</span></label>
+      <label class="consent"><input id="livelips" type="checkbox" checked> <span>Keep original lips (exact lip sync)</span></label>
       <label class="consent"><input id="liverestore" type="checkbox"> <span>Detail restoration (sharper, much slower)</span></label>
       <label class="consent"><input id="liveconsent" type="checkbox"> <span>I have the consent of every person whose face is used or shown. The preview carries a visible "AI-generated" label.</span></label>
       <div class="row">
@@ -265,6 +267,7 @@ const MODELS = [
   { key: "swap", label: "Face swapper (inswapper)" },
   { key: "nsfw", label: "Content safeguard" },
   { key: "enh", label: "Face restoration (GPEN)" },
+  { key: "lmk", label: "Landmarks (lips, eyes)" },
 ];
 const T = {
   arc112: [[0.34191607,0.46157411],[0.65653393,0.45983393],[0.50022500,0.64050536],[0.37097589,0.82469196],[0.63151696,0.82325089]],
@@ -548,6 +551,52 @@ function pasteBack(out, rgb, size, M, mask, strength) {
   const inv = invert(M), o = out.getContext("2d"); o.save(); o.imageSmoothingQuality = "high";
   o.setTransform(inv[0], inv[3], inv[1], inv[4], inv[2], inv[5]); o.drawImage(c, 0, 0); o.restore();
 }
+// ---- precise landmarks (InsightFace 2d106det): alignment from measured eyes/nose/mouth + lip outline ----
+const LM = { eyeL: [35, 41, 42, 39, 37, 33], eyeR: [89, 95, 96, 93, 91, 90], nose: 86, mL: 52, mR: 61,
+  lips: [52, 64, 63, 71, 67, 68, 61, 58, 59, 53, 56, 55] };
+async function refine(canvas, f) {
+  if (!S.sess.lmk) return f;
+  const [x1, y1, x2, y2] = f.box, sc = 192 / (Math.max(x2 - x1, y2 - y1) * 1.5), cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+  const M = [sc, 0, 96 - cx * sc, 0, sc, 96 - cy * sc], inv = invert(M), sess = S.sess.lmk;
+  const o = (await sess.run({ [sess.inputNames[0]]: toTensor(warp(canvas, M, 192), [0, 0, 0], 1) }))[sess.outputNames[0]].data;
+  const p = []; for (let k = 0; k < 106; k++) { const u = (o[2 * k] + 1) * 96, v = (o[2 * k + 1] + 1) * 96;
+    p.push([inv[0] * u + inv[1] * v + inv[2], inv[3] * u + inv[4] * v + inv[5]]); }
+  const mean = (ix) => ix.reduce((a, i) => [a[0] + p[i][0] / ix.length, a[1] + p[i][1] / ix.length], [0, 0]);
+  return { ...f, kps: [mean(LM.eyeL), mean(LM.eyeR), p[LM.nose], p[LM.mL], p[LM.mR]], lips: LM.lips.map((i) => p[i]) };
+}
+// Keep the target's own lips and mouth opening: exact lip sync (the swap model alone under-opens the mouth).
+function restoreLips(out, orig, lips) {
+  const n = lips.length, c = lips.reduce((a, q) => [a[0] + q[0] / n, a[1] + q[1] / n], [0, 0]);
+  const pts = lips.map((q) => [c[0] + (q[0] - c[0]) * 1.06, c[1] + (q[1] - c[1]) * 1.06]);
+  const width = Math.hypot(lips[6][0] - lips[0][0], lips[6][1] - lips[0][1]); if (width < 4) return;
+  const pad = Math.ceil(width * 0.35) + 4;
+  const x0 = Math.max(0, Math.floor(Math.min(...pts.map((q) => q[0])) - pad)), y0 = Math.max(0, Math.floor(Math.min(...pts.map((q) => q[1])) - pad));
+  const x1 = Math.min(out.width, Math.ceil(Math.max(...pts.map((q) => q[0])) + pad)), y1 = Math.min(out.height, Math.ceil(Math.max(...pts.map((q) => q[1])) + pad));
+  const w = x1 - x0, h = y1 - y0; if (w < 2 || h < 2) return;
+  const mk = (cw, ch) => Object.assign(document.createElement("canvas"), { width: cw, height: ch });
+  const m = mk(w, h), mg = m.getContext("2d"); mg.fillStyle = "#fff"; mg.beginPath();
+  pts.forEach((q, k) => (k ? mg.lineTo(q[0] - x0, q[1] - y0) : mg.moveTo(q[0] - x0, q[1] - y0))); mg.closePath(); mg.fill();
+  // feather: shrink then enlarge with smoothing (works in every browser, unlike ctx.filter)
+  const f = Math.max(2, Math.round(width * 0.09)), sm = mk(Math.max(1, Math.ceil(w / f)), Math.max(1, Math.ceil(h / f)));
+  const sg = sm.getContext("2d"); sg.imageSmoothingQuality = "high"; sg.drawImage(m, 0, 0, sm.width, sm.height);
+  const soft = mk(w, h), fg = soft.getContext("2d"); fg.imageSmoothingQuality = "high"; fg.drawImage(sm, 0, 0, w, h);
+  const t = mk(w, h), tg = t.getContext("2d"); tg.drawImage(orig, x0, y0, w, h, 0, 0, w, h);
+  tg.globalCompositeOperation = "destination-in"; tg.drawImage(soft, 0, 0);
+  out.getContext("2d").drawImage(t, x0, y0);
+}
+// Zero-lag smoothing: least-squares quadratic over neighbouring frames, evaluated at offset 0 (Savitzky-Golay).
+function fitWeights(offs) {
+  const deg = Math.min(2, offs.length - 1), k = deg + 1;
+  const A = Array.from({ length: k }, (_, r) => Array.from({ length: k }, (_, c) => offs.reduce((a, o) => a + o ** (r + c), 0)));
+  // weights = first row of (V^T V)^-1 V^T  -> solve A x = e0 (Gauss-Jordan)
+  const M = A.map((row, r) => [...row, r === 0 ? 1 : 0]);
+  for (let c = 0; c < k; c++) { let p = c; for (let r = c + 1; r < k; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]]; const d = M[c][c] || 1e-12; for (let j = c; j <= k; j++) M[c][j] /= d;
+    for (let r = 0; r < k; r++) if (r !== c) { const fct = M[r][c]; for (let j = c; j <= k; j++) M[r][j] -= fct * M[c][j]; } }
+  const x = M.map((row) => row[k]);
+  return offs.map((o) => x.reduce((a, xi, j) => a + xi * o ** j, 0));
+}
+
 // Pixel boost: crop at 128*b and swap each of the b*b interleaved 128 px sub-grids, giving real detail at 128*b px.
 async function swapOne(base, out, face, lat, boost, onPart = async () => {}) {
   const size = 128 * boost, M = similarity(face.kps, T.arc128, size), crop = warp(base, M, size);
@@ -670,8 +719,9 @@ $("swap").addEventListener("click", async () => {
     let k = 0;
     for (const i of S.sel) {
       k++;
-      await swapOne(S.tgt, out, S.tgtFaces[i], lat, boost, (p, n) => Job.step(`face ${k} of ${nf}: swapping${n > 1 ? ` part ${p}/${n}` : ""}`));
-      if (restore) { await Job.step(`face ${k} of ${nf}: restoring detail`); await restoreOne(out, S.tgtFaces[i], $("enhance").value / 100); Job.advance(RESTORE); }
+      const tf = await refine(S.tgt, S.tgtFaces[i]);  // precise alignment from measured landmarks
+      await swapOne(S.tgt, out, tf, lat, boost, (p, n) => Job.step(`face ${k} of ${nf}: swapping${n > 1 ? ` part ${p}/${n}` : ""}`));
+      if (restore) { await Job.step(`face ${k} of ${nf}: restoring detail`); await restoreOne(out, tf, $("enhance").value / 100); Job.advance(RESTORE); }
     }
     S.result = out; showResult();
     Job.finish("Done. Drag the image to compare before and after, then Save PNG.");
@@ -791,7 +841,7 @@ function smoothFaces(faces) {
     const prev = L.last.find((p) => iou(p.box, f.box) > 0.3);
     if (!prev) return f;
     const size = f.box[2] - f.box[0], move = Math.hypot(f.kps[2][0] - prev.kps[2][0], f.kps[2][1] - prev.kps[2][1]) / size;
-    const a = Math.min(1, 0.35 + move * 6);  // fast motion -> follow quickly
+    const a = Math.min(1, 0.5 + move * 8);  // measured landmarks jitter little: follow closely, faster on motion
     return { ...f, kps: f.kps.map((k, i) => [prev.kps[i][0] + (k[0] - prev.kps[i][0]) * a, prev.kps[i][1] + (k[1] - prev.kps[i][1]) * a]) };
   });
   L.last = out; return out;
@@ -812,11 +862,15 @@ async function liveLoop() {
       if (t0 - L.lastCheck > 10000) { L.lastCheck = t0; await nsfwCheck(grab, "camera image"); }
       const out = document.createElement("canvas"); out.width = grab.width; out.height = grab.height; out.getContext("2d").drawImage(grab, 0, 0);
       if (!L.bypass) {
-        let faces = smoothFaces(await detect(grab, 320));
-        if (!$("liveall").checked) faces = faces.slice(0, 1);
-        for (const f of faces) {
+        let det = await detect(grab, 320);
+        if (!$("liveall").checked) det = det.slice(0, 1);
+        const measured = []; for (const d of det) measured.push(await refine(grab, d));  // precise eyes/nose/lips
+        const faces = smoothFaces(measured);  // live: real-time smoothing (no look-ahead possible)
+        for (let k = 0; k < faces.length; k++) {
+          const f = faces[k];
           await swapOne(grab, out, f, lat, 1);
           if ($("liverestore").checked) await restoreOne(out, f, 0.6);
+          if ($("livelips").checked && measured[k].lips) restoreLips(out, grab, measured[k].lips);  // current-frame lips: no lag
         }
         L.faces = faces.length;
       }
@@ -999,41 +1053,64 @@ async function processVideo() {
     encoder.configure(cfg);
     const per = 1 + boost * boost + (restore ? 0.25 : 0);  // detection+tracking, swap passes, restoration
     Job.start("Processing video", n * per);
-    const tracks = [];  // {box, ref, lastEmbed}
-    for (let i = 0; i < n; i++) {
+    // Look-ahead window: frames are decoded and measured R frames ahead, so landmarks are smoothed with past
+    // AND future frames (zero lag, no jitter). Lips stay per-frame so speech is followed exactly.
+    const R = 2, win = [], tracks = new Map(); let nextId = 0, prev = [];
+    const keepLips = $("vidlips").checked;
+    for (let i = 0; i < n + R; i++) {
       if (V.cancel) throw new Error("cancelled");
       if (encErr) throw encErr;
-      await Job.step(`frame ${i + 1} of ${n}: finding faces`);
-      await seekTo(Math.min(V.dur - 0.001, (i * step + 0.5) / V.fps));
-      gctx.drawImage(V.el, 0, 0, W, H);
-      if (i % Math.max(1, Math.round(fps * 2)) === 0) await nsfwCheck(grab, "video");
-      const faces = smoothVidFaces(await detect(grab, 480), tracks);
+      if (i < n) {
+        await Job.step(`frame ${i + 1} of ${n}: finding faces`);
+        await seekTo(Math.min(V.dur - 0.001, (i * step + 0.5) / V.fps));
+        const cv = document.createElement("canvas"); cv.width = W; cv.height = H; cv.getContext("2d").drawImage(V.el, 0, 0, W, H);
+        if (i % Math.max(1, Math.round(fps * 2)) === 0) await nsfwCheck(cv, "video");
+        const faces = [];
+        for (const d of await detect(cv, 480)) {
+          const f = await refine(cv, d);
+          const p = prev.find((q) => !faces.some((x) => x.id === q.id) && iou(q.box, f.box) > 0.3);
+          f.id = p ? p.id : nextId++; faces.push(f);
+        }
+        prev = faces; win.push({ i, cv, faces });
+        Job.advance(1);
+      }
+      const c = i - R; if (c < 0) continue;
+      const item = win.find((w) => w.i === c);
+      // zero-lag smoothing of each face's alignment points over frames c-R..c+R
+      const faces = item.faces.map((f) => {
+        const offs = [], pts = [];
+        for (const w of win) { if (Math.abs(w.i - c) > R) continue; const g = w.faces.find((x) => x.id === f.id); if (g) { offs.push(w.i - c); pts.push(g.kps); } }
+        if (offs.length < 3) return f;
+        const wts = fitWeights(offs);
+        return { ...f, kps: f.kps.map((_, j) => [0, 1].map((ax) => pts.reduce((a, q, k) => a + wts[k] * q[j][ax], 0))) };
+      });
       let targets;
       if (V.refs.length) {
         targets = [];
         for (const f of faces) {
-          let t = tracks.find((t) => t.face === f);
-          if (t.ref === undefined || i - t.lastEmbed >= 15) {  // identity check for new tracks and every 15 frames
-            const e = await embed(grab, f.kps); let best = -1, bi = -1;
-            V.refs.forEach((r, k) => { const s = r.reduce((a, v, j) => a + v * e[j], 0); if (s > best) { best = s; bi = k; } });
-            t.ref = best > 0.35 ? bi : null; t.lastEmbed = i;
+          let t = tracks.get(f.id); if (!t) { t = { ref: undefined, lastEmbed: -99 }; tracks.set(f.id, t); }
+          if (t.ref === undefined || c - t.lastEmbed >= 15) {  // identity check for new tracks and every 15 frames
+            const e = await embed(item.cv, f.kps); let best = -1, bi = -1;
+            V.refs.forEach((r, k) => { const sm = r.reduce((a, v, j) => a + v * e[j], 0); if (sm > best) { best = sm; bi = k; } });
+            t.ref = best > 0.35 ? bi : null; t.lastEmbed = c;
           }
           if (t.ref !== null) targets.push(f);
         }
       } else targets = faces.slice(0, 1);
-      Job.advance(1);
-      const out = document.createElement("canvas"); out.width = W; out.height = H; out.getContext("2d").drawImage(grab, 0, 0);
+      const out = document.createElement("canvas"); out.width = W; out.height = H; out.getContext("2d").drawImage(item.cv, 0, 0);
       for (const f of targets) {
-        await swapOne(grab, out, f, lat, boost, (p, m) => Job.step(`frame ${i + 1} of ${n}: swapping${m > 1 ? ` part ${p}/${m}` : ""}`));
-        if (restore) { await Job.step(`frame ${i + 1} of ${n}: restoring detail`); await restoreOne(out, f, 0.7); }
+        await swapOne(item.cv, out, f, lat, boost, (p, m) => Job.step(`frame ${c + 1} of ${n}: swapping${m > 1 ? ` part ${p}/${m}` : ""}`));
+        if (restore) { await Job.step(`frame ${c + 1} of ${n}: restoring detail`); await restoreOne(out, f, 0.7); }
+        if (keepLips && f.lips) restoreLips(out, item.cv, f.lips);
       }
       if (!targets.length) Job.advance(boost * boost);
       if (restore) Job.advance(0.25);
       label(out);
-      const frame = new VideoFrame(out, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
-      encoder.encode(frame, { keyFrame: i % Math.max(1, Math.round(fps * 2)) === 0 }); frame.close();
+      const frame = new VideoFrame(out, { timestamp: Math.round(c * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      encoder.encode(frame, { keyFrame: c % Math.max(1, Math.round(fps * 2)) === 0 }); frame.close();
       while (encoder.encodeQueueSize > 4) await new Promise((r) => setTimeout(r, 5));
-      if (i % 3 === 0 || i === n - 1) drawVidPreview(out, []);
+      if (c % 3 === 0 || c === n - 1) drawVidPreview(out, []);
+      while (win.length && win[0].i < c - R + 1) win.shift();  // keep R past frames
     }
     await encoder.flush();
     if (ainfo) {

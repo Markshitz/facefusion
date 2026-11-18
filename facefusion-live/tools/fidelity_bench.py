@@ -28,8 +28,8 @@ def keypts(lm):
     return np.vstack([lm[36:42].mean(0), lm[42:48].mean(0), lm[KEY]])
 
 
-def measure(engine, fan, orig_frames, out_frames):
-    o_open, s_open, err = [], [], []
+def measure(engine, fan, orig_frames, out_frames, source=None):
+    o_open, s_open, err, ident = [], [], [], []
     for o, s in zip(orig_frames, out_frames):
         fo, fs = engine.detect(o), engine.detect(s)
         if not fo or not fs:
@@ -39,10 +39,13 @@ def measure(engine, fan, orig_frames, out_frames):
         iod = np.linalg.norm(lo[36:42].mean(0) - lo[42:48].mean(0))
         o_open.append(fan68.mouth_open_ratio(lo)); s_open.append(fan68.mouth_open_ratio(ls))
         err.append(np.linalg.norm(keypts(lo) - keypts(ls), axis=1).mean() / iod)
+        if source is not None:
+            ident.append(float(np.dot(engine.embedder.embed(s, fs[0].kps), source.embedding)))
     o_open, s_open = np.array(o_open), np.array(s_open)
     return {"lip_corr": round(float(np.corrcoef(o_open, s_open)[0, 1]), 3),
             "lip_mae": round(float(np.abs(o_open - s_open).mean()), 4),
-            "motion_err": round(float(np.mean(err)), 4)}
+            "motion_err": round(float(np.mean(err)), 4),
+            "identity": round(float(np.mean(ident)), 3) if ident else None}
 
 
 def run(video, source, n, overrides):
@@ -64,7 +67,7 @@ def run(video, source, n, overrides):
     outs = swap_frames(e, FaceMapping(mode="largest", default=S), frames, fps=25)
     dt = (time.perf_counter() - t) / len(frames)
     fan = fan68.FAN68(e.sessions, e.store.require("2dfan4"))
-    r = measure(e, fan, frames, outs)
+    r = measure(e, fan, frames, outs, S)
     r["ms_per_frame"] = round(dt * 1000)
     return r, outs
 

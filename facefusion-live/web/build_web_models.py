@@ -26,11 +26,13 @@ MODELS = {  # name -> (source file, quantize?)
     "swap": ("inswapper_128.onnx", True),
     "nsfw": ("open_nsfw.onnx", True),
     "enh": ("gpen_bfr_256.onnx", True),
+    "lmk": ("buffalo_l/2d106det.onnx", True),  # 106 landmarks: precise alignment + lip tracking (InsightFace)
 }
 
 
 def weight_only_int8(model: onnx.ModelProto, min_size: int = 4096) -> onnx.ModelProto:
     g = model.graph
+    opset = next((o.version for o in model.opset_import if o.domain in ("", "ai.onnx")), 13)
     used = {i for n in g.node for i in n.input}
     init_names = {i.name for i in g.initializer}
     real_inputs = [i for i in g.input if i.name not in init_names]  # some exporters list weights as inputs
@@ -47,9 +49,15 @@ def weight_only_int8(model: onnx.ModelProto, min_size: int = 4096) -> onnx.Model
         flat = np.abs(w.reshape(w.shape[0], -1)).max(1)
         scale = np.where(flat > 1e-12, flat / 127.0, 1.0).astype(np.float32)
         q = np.clip(np.round(w / scale.reshape((-1,) + (1,) * (w.ndim - 1))), -127, 127).astype(np.int8)
-        keep += [numpy_helper.from_array(q, init.name + "_q"), numpy_helper.from_array(scale, init.name + "_s")]
-        new_nodes.append(helper.make_node("DequantizeLinear", [init.name + "_q", init.name + "_s"], [init.name],
-                                          axis=0, name=init.name + "_dq"))
+        if opset >= 13:  # per-channel DequantizeLinear (axis attribute exists from opset 13)
+            keep += [numpy_helper.from_array(q, init.name + "_q"), numpy_helper.from_array(scale, init.name + "_s")]
+            new_nodes.append(helper.make_node("DequantizeLinear", [init.name + "_q", init.name + "_s"], [init.name],
+                                              axis=0, name=init.name + "_dq"))
+        else:  # older models: Cast(int8 -> float) * per-channel scale; also constant-folded at load
+            sc = scale.reshape((-1,) + (1,) * (w.ndim - 1))
+            keep += [numpy_helper.from_array(q, init.name + "_q"), numpy_helper.from_array(sc, init.name + "_s")]
+            new_nodes += [helper.make_node("Cast", [init.name + "_q"], [init.name + "_f"], to=1, name=init.name + "_cast"),
+                          helper.make_node("Mul", [init.name + "_f", init.name + "_s"], [init.name], name=init.name + "_dq")]
     del g.initializer[:]
     g.initializer.extend(keep)
     nodes = list(g.node)

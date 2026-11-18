@@ -104,6 +104,8 @@ class LivePipeline:
             if self._level >= 3:
                 s.det_size = 320
                 s.occlusion_mask = s.region_mask = False
+                s.landmarker = "none"  # last resort: skip the 68-point landmark pass
+                s.mouth_preserve = False
         view = copy.copy(self.engine)
         view.settings = s
         return view

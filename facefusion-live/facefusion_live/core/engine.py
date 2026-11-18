@@ -197,7 +197,7 @@ class FaceEngine:
             if lm is None and self.store.is_installed("fan_68_5"):
                 lm = self.landmarker(target.kps)
             if lm is not None:
-                restore_mouth(frame, original, lm, s.mouth_region)
+                restore_mouth(frame, original, lm, s.mouth_region, s.mouth_strength)
 
     def process(self, frame: np.ndarray, pairs: list[tuple[Face, SourceIdentity]]) -> np.ndarray:
         """Return a new frame with each (target, source) pair swapped."""
