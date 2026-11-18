@@ -46,22 +46,16 @@ Delete the folder to remove everything. To skip the download prompt, you can cop
 
 - **Photo swap:** source photo onto target photo. Quality: Fast, Balanced, High (default) or Max. Progress bar with
   time left; full-resolution output; Save PNG with an "AI-generated" label.
-- **Live webcam:** real-time swap of the camera feed (largest face or every face), with a burned-in "AI-generated"
-  label, landmark smoothing, FPS and latency display, Show original toggle, camera picker and a content check every
-  10 s.
-  - **Inside claude.ai the camera is blocked.** Artifacts are not allowed to use the camera, and the page explains
-    this.
-  - **Live works on a normal web address.** Deploy to GitHub Pages (below) or serve `web/` locally.
-- **Speed:** models run in a Web Worker, so the page stays responsive. They use the graphics card through WebGPU
-  when the browser supports it; the detector, swapper and restorer each do a test run and fall back to CPU if it
-  fails or takes over 15 s.
-  - The CPU path uses up to 4 threads on hosts where `coi-sw.js` can enable cross-origin isolation.
-  - Measured on a 4-core sandbox CPU (no GPU): about 3 s per live frame at 640×360 with 4 threads, 11 s with 1
-    thread. That is a slow preview, not smooth video. Real-time needs a GPU (WebGPU); GPU frame rates are **not
-    measured yet**.
-- **Choosing the processor:** "Processor: CPU only" forces CPU if a GPU driver misbehaves.
+- **Photo only.** Video and live webcam swapping are in the Windows app; they were removed from the web page because
+  they made it heavy enough to crash browser tabs.
+- **Runs on the CPU, in a Web Worker,** so the page stays responsive. Up to 4 threads on hosts where `coi-sw.js` can
+  enable cross-origin isolation. The WebGPU path was removed: it doubled memory and could hang the page when a GPU
+  test run timed out.
+- **Memory (measured, headless Chrome):** the largest browser process peaks at about 1 GB through load and a High
+  quality swap. It was 1.6 GB before, when the int8 weights were expanded to float32 at load (the
+  `session.disable_quant_qdq` option, now removed).
 
-**GitHub Pages (enables Live webcam):** `.github/workflows/facefusion-live-web.yml` builds the site:
+**GitHub Pages:** `.github/workflows/facefusion-live-web.yml` builds the site:
 1. It downloads the models, runs `build_web_models.py` and `fetch_runtime.sh`, and adds the HTML wrapper.
 2. It deploys from the default branch.
 
@@ -70,8 +64,8 @@ One-time setup: *Settings › Pages › Source: GitHub Actions*. The site is the
 non-commercial use only.
 
 **Model bundle:** `web/build_web_models.py <models_dir> web/models` stores large weights as int8 with a per-channel
-scale. They are expanded to fp32 when the model loads, so inference runs at full precision. Measured against the
-originals:
+scale. They stay int8 in memory and are expanded per layer while the model runs, so inference runs at full
+precision. Measured against the originals:
 
 | Model | Agreement |
 |---|---|
