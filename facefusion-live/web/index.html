@@ -629,10 +629,17 @@ function warpMouth(out, now, target) {
   }
 }
 // Full lip-sync step: measure the swapped mouth, reshape it onto the original, then the original opening on top.
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+// 0 = profile, 1 = facing the camera (nose-to-cheek balance). On turned heads mouth points are guesses.
+const frontalness = (p) => { const a = dist(p[LM.nose], p[5]), b = dist(p[LM.nose], p[21]); return Math.min(a, b) / Math.max(a, b, 1e-6); };
+function mouthAgrees(now, target) {
+  const w = dist(target[LM.mL], target[LM.mR]); if (w < 6) return false;
+  return [...LM.lips, ...LM.inner].every((i) => dist(now[i], target[i]) < 0.6 * w);
+}
 async function followSpeech(out, orig, f) {
-  if (!f.pts) return;
+  if (!f.pts || frontalness(f.pts) < 0.35) return;  // turned head: a warp would pull background into the face
   const now = await refine(out, f);
-  if (now.pts) warpMouth(out, now.pts, f.pts);
+  if (now.pts && mouthAgrees(now.pts, f.pts)) warpMouth(out, now.pts, f.pts);
   restoreLips(out, orig, LM.inner.map((i) => f.pts[i]));
 }
 

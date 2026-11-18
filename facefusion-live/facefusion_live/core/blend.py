@@ -62,6 +62,43 @@ def mouth_mask(lm68_crop: np.ndarray, size: int, grow: float = 0.15) -> np.ndarr
     return cv2.GaussianBlur(m, (0, 0), k)
 
 
+def frontalness(lm68: np.ndarray) -> float:
+    """0 = full profile, 1 = facing the camera: balance of nose-to-jaw-edge distances on both sides."""
+    a = float(np.linalg.norm(lm68[30] - lm68[2]))
+    b = float(np.linalg.norm(lm68[30] - lm68[14]))
+    return min(a, b) / max(a, b, 1e-6)
+
+
+def mouth_landmarks_ok(lm_now: np.ndarray, lm_target: np.ndarray) -> bool:
+    """The measured swapped mouth and the original mouth must roughly agree; otherwise a warp drags in garbage."""
+    width = float(np.linalg.norm(lm_target[54] - lm_target[48]))
+    if width < 6:
+        return False
+    shift = np.linalg.norm(lm_now[48:68] - lm_target[48:68], axis=1).max()
+    return bool(shift < 0.6 * width)
+
+
+PROFILE = 0.35  # frontalness below this: mouth landmarks are guesses, leave the mouth to the swap model
+
+
+def face_hull_mask(lm68_crop: np.ndarray, size: int, grow: float = 0.04) -> np.ndarray:
+    """Mask of the real face outline (jaw line + brows raised to the hairline) in crop space, feathered.
+
+    On a turned head the square swap crop covers background in front of the profile; without this the swapped
+    face is painted over it semi-transparently (a "ghost" face with the background showing through).
+    """
+    jaw = lm68_crop[0:17]
+    brows = lm68_crop[26:16:-1]
+    chin = lm68_crop[8]
+    top = brows + (brows - chin) * 0.22  # forehead above the brows (the forehead fade blends it further)
+    pts = np.vstack([jaw, top]).astype(np.float32)
+    c = pts.mean(0)
+    pts = c + (pts - c) * (1 + grow)
+    m = np.zeros((size, size), np.float32)
+    cv2.fillPoly(m, [cv2.convexHull(pts).astype(np.int32)], 1.0, cv2.LINE_AA)
+    return cv2.GaussianBlur(m, (0, 0), max(size * 0.015, 1.0))
+
+
 def _warp_triangle(src: np.ndarray, dst: np.ndarray, t_src: np.ndarray, t_dst: np.ndarray) -> None:
     """Affine-warp one triangle of `src` into `dst` (in-place)."""
     r1, r2 = cv2.boundingRect(t_src.astype(np.float32)), cv2.boundingRect(t_dst.astype(np.float32))

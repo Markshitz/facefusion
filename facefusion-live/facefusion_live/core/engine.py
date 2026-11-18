@@ -10,8 +10,8 @@ import cv2
 import numpy as np
 
 from facefusion_live.app.config import Settings
-from facefusion_live.core.align import warp_face
-from facefusion_live.core.blend import box_mask, color_transfer, forehead_fade, paste_back, restore_mouth, warp_mouth
+from facefusion_live.core.align import transform_points, warp_face
+from facefusion_live.core.blend import PROFILE, box_mask, color_transfer, face_hull_mask, frontalness, mouth_landmarks_ok, forehead_fade, paste_back, restore_mouth, warp_mouth
 from facefusion_live.core.face import Face
 from facefusion_live.inference.session import Sessions, provider_label, resolve_providers
 from facefusion_live.models.store import ModelStore
@@ -181,6 +181,8 @@ class FaceEngine:
         mask = box_mask(size, s.mask_blur, 0.0).copy()
         if s.forehead_blend > 0:
             mask *= forehead_fade(size, s.forehead_blend)
+        if s.face_outline and target.landmarks68 is not None:
+            mask = np.minimum(mask, face_hull_mask(transform_points(target.landmarks68, m), size))
         if s.occlusion_mask and self.store.is_installed("xseg_1"):
             mask = np.minimum(mask, self.occluder(crop))
         if s.region_mask and self.store.is_installed("bisenet_resnet_34"):
@@ -199,11 +201,13 @@ class FaceEngine:
             lm = target.landmarks68
             if lm is None and self.store.is_installed("fan_68_5"):
                 lm = self.landmarker(target.kps)
+            if lm is not None and frontalness(lm) < PROFILE:
+                lm = None  # turned head: mouth points are unreliable and would pull background into the face
             if lm is not None and s.mouth_region == "warp" and self.store.is_installed("2dfan4"):
                 # keep the swapped (source) lips but move them exactly like the original mouth,
                 # then show the original opening (teeth, tongue)
                 lm_now, score = self.fan68(frame, target.bbox)
-                if score > 0.25:
+                if score > 0.25 and mouth_landmarks_ok(lm_now, lm):
                     warp_mouth(frame, lm_now, lm)
                 restore_mouth(frame, original, lm, "inner", 1.0)
             elif lm is not None:

@@ -38,6 +38,7 @@ class FaceSettingsPanel(QScrollArea):
         self._combo("Mouth region", "mouth_region", [("Reshape swapped lips to the speech (best)", "warp"), ("Original lips + opening", "lips"), ("Teeth/opening only", "inner")])
         self._combo("Landmarks", "landmarker", [("Precise 68-point (follows lips/eyes)", "2dfan4"), ("Fast (detector points)", "none")])
         self._check("Zero-lag video smoothing", "offline_smoothing", "Video export: smooth using neighbouring frames, no trailing behind movement")
+        self._check("Clip to face outline", "face_outline", "Turned heads: never paint the face over the background next to the profile")
         self._check("Occlusion mask", "occlusion_mask", "Keep hands/objects in front of the face (XSeg model)")
         self._check("Face-region mask", "region_mask", "Only replace skin/eyes/nose/mouth; keep hair and beard edges (BiSeNet)")
         self._check("Face tracking", "tracking", "Track faces between detections (faster, steadier)")

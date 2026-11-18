@@ -54,6 +54,7 @@ class Settings:
     mask_blur: float = 0.3            # feather amount of box mask
     color_match: float = 0.15         # 0..1 LAB statistic transfer strength
     forehead_blend: float = 0.15     # 0..0.5 fade of the crop top into the original forehead (hides seams)
+    face_outline: bool = True         # clip the swap to the measured face outline (no ghost face on turned heads)
     occlusion_mask: bool = False      # XSeg occluder mask
     region_mask: bool = False         # BiSeNet face-parsing mask
     mouth_preserve: bool = True       # keep the original mouth: exact lip sync (see mouth_region)
