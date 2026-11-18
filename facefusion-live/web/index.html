@@ -172,6 +172,8 @@ footer p { margin: 0; max-width: 90ch }
       <div class="slider"><label for="vidlen">Process</label><select id="vidlen">
         <option value="5">First 5 seconds</option><option value="10" selected>First 10 seconds</option>
         <option value="30">First 30 seconds</option><option value="0">Whole video</option></select><span></span></div>
+      <div class="slider"><label for="vidstep">Frames</label><select id="vidstep">
+        <option value="1" selected>Every frame (smoothest)</option><option value="2">Every 2nd frame (2&times; faster, half frame rate)</option></select><span></span></div>
       <p class="hint" id="videstimate"></p>
       <label class="consent"><input id="vidconsent" type="checkbox"> <span>I have the consent of every person whose face is used or replaced. The video carries a visible "AI-generated" label.</span></label>
       <div class="row">
@@ -224,6 +226,7 @@ onmessage = async (e) => {
   try {
     if (m.type === "init") {
       importScripts(m.ortUrl); ort.env.wasm.wasmPaths = m.base; ort.env.wasm.numThreads = m.threads || 1;
+      if (m.wasmBinary) ort.env.wasm.wasmBinary = m.wasmBinary;  // GPU runtime handed over as bytes (split file on artifacts)
       postMessage({ id: m.id, ok: true });
     } else if (m.type === "create") {
       const s = await ort.InferenceSession.create(m.bytes, m.opts);
@@ -273,6 +276,25 @@ const S = { sess: {}, emap: null, src: null, srcFaces: [], srcIdx: 0, tgt: null,
 ort.env.wasm.wasmPaths = new URL("./", location.href).href;
 ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
 
+async function fetchGpuRuntime(man) {
+  Job.start("Loading graphics-card runtime", man.bytes);
+  const buf = new Uint8Array(man.bytes); let o = 0;
+  try {
+    for (const part of man.parts) {
+      const r = await fetch("runtime/" + part); if (!r.ok) throw new Error(`${part}: HTTP ${r.status}`);
+      const rd = r.body.getReader();
+      for (;;) { const { done, value } = await rd.read(); if (done) break; buf.set(value, o); o += value.length;
+        Job.label = `${(o / 1048576).toFixed(0)} / ${(man.bytes / 1048576).toFixed(0)} MB`; Job.advance(value.length); }
+    }
+    if (o !== man.bytes) throw new Error("incomplete download");
+    if (self.crypto?.subtle) {
+      const h = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))].map((x) => x.toString(16).padStart(2, "0")).join("");
+      if (h !== man.sha256) throw new Error("checksum mismatch");
+    }
+    Job.finish("");
+    return buf.buffer;
+  } catch (e) { Job.finish(""); console.warn("GPU runtime download failed, using CPU:", e); return null; }
+}
 // Heavy models try the GPU (with a test run of these input shapes); ArcFace and the content check stay on CPU.
 const GPU_WARM = { det: { input: [1, 3, 320, 320] }, swap: { target: [1, 3, 128, 128], source: [1, 512] }, enh: { input: [1, 3, 256, 256] } };
 const cpuOnly = () => { try { return localStorage.getItem("ffl-cpu") === "1"; } catch (e) { return false; } };
@@ -295,13 +317,21 @@ const Backend = {
         e.data.ok ? p.resolve(e.data) : p.reject(new Error(e.data.error)); };
       this.worker.onerror = (e) => { for (const p of this.pending.values()) p.reject(new Error(e.message || "worker error")); this.pending.clear(); };
       // WebGPU needs the larger JSEP runtime next to the page; artifacts can't host it (15 MB file limit), web hosts can.
-      let ortUrl = document.querySelector('script[src*="onnxruntime-web"]').src;
+      let ortUrl = document.querySelector('script[src*="onnxruntime-web"]').src, wasmBinary = null;
       try {
-        const has = await fetch("ort-wasm-simd-threaded.asyncify.wasm", { method: "HEAD" }).then((r) => r.ok, () => false);
-        if (has && navigator.gpu && await navigator.gpu.requestAdapter()) { ortUrl = ortUrl.replace("ort.wasm.min.js", "ort.webgpu.min.js"); this.gpu = true; }
-      } catch (e) { this.gpu = false; }
+        const adapter = !cpuOnly() && navigator.gpu ? await navigator.gpu.requestAdapter() : null;
+        if (adapter) {
+          if (await fetch("ort-wasm-simd-threaded.asyncify.wasm", { method: "HEAD" }).then((r) => r.ok, () => false)) this.gpu = true;  // web host: whole file
+          else {  // artifact: the 27 MB GPU runtime is published in <15 MB parts and joined here
+            const man = await fetch("runtime/gpu.json").then((r) => (r.ok ? r.json() : null), () => null);
+            if (man) { wasmBinary = await fetchGpuRuntime(man); this.gpu = !!wasmBinary; }
+          }
+          if (this.gpu) ortUrl = ortUrl.replace("ort.wasm.min.js", "ort.webgpu.min.js");
+        }
+      } catch (e) { console.warn("GPU runtime unavailable:", e); this.gpu = false; wasmBinary = null; }
       this.threads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
-      await Promise.race([this.call({ type: "init", ortUrl, base: ort.env.wasm.wasmPaths, threads: this.threads }),
+      await Promise.race([this.call({ type: "init", ortUrl, base: ort.env.wasm.wasmPaths, threads: this.threads, wasmBinary },
+                                    wasmBinary ? [wasmBinary] : []),
         new Promise((_, rej) => setTimeout(() => rej(new Error("worker timeout")), 15000))]);
     } catch (e) { console.warn("Worker unavailable, running models on the page:", e); this.worker?.terminate(); this.worker = null; }
   },
@@ -310,7 +340,7 @@ const Backend = {
     let info;
     const warm = GPU_WARM[key];
     if (this.gpu && warm && !cpuOnly()) {
-      const warmTimeout = Number(new URLSearchParams(location.search).get("gputimeout")) || 15000;  // test hook
+      const warmTimeout = Number(new URLSearchParams(location.search).get("gputimeout")) || 25000;  // test hook
       try { info = await this.call({ type: "create", key, bytes: bytes.slice(), opts: { ...opts, executionProviders: ["webgpu", "wasm"] }, warm, warmTimeout });
         this.onGpu.add(key); }
       catch (e) { console.warn(`WebGPU failed for ${key}, using CPU:`, e); }
@@ -862,13 +892,15 @@ function vidRefresh() {
   const ready = modelsReady() && S.srcFaces.length && V.el && $("vidconsent").checked && !V.busy;
   $("vidstart").disabled = !ready; $("vidcancel").disabled = !V.busy; $("vidsave").disabled = V.busy || !V.result;
   if (V.el && V.dur) {
-    const secs = Number($("vidlen").value) ? Math.min(Number($("vidlen").value), V.dur) : V.dur, n = Math.round(secs * V.fps);
-    $("videstimate").textContent = `${n} frames to process (${secs.toFixed(1)} s at ${V.fps} fps). In the browser each frame takes a few seconds; the bar shows the time left once it starts. For long videos the Windows app is much faster.`;
+    const secs = Number($("vidlen").value) ? Math.min(Number($("vidlen").value), V.dur) : V.dur, step = Number($("vidstep").value);
+    const n = Math.ceil(secs * V.fps / step), gpu = Backend.onGpu.has("swap");
+    $("videstimate").textContent = `${n} frames to process (${secs.toFixed(1)} s at ${+(V.fps / step).toFixed(3)} fps). ` + (gpu
+      ? "Running on your graphics card." : "Running on the CPU here, a few seconds per frame; the bar shows the time left once it starts. The Windows app is much faster for long videos.");
   }
   if (!V.busy && !$("vidmsg").classList.contains("err")) $("vidmsg").textContent = !modelsReady() ? "Waiting for the models to finish loading…"
     : !S.srcFaces.length ? "Choose a source face photo first (left)." : !V.el ? "Choose a video." : !$("vidconsent").checked ? "Tick the consent box to enable processing." : "";
 }
-["vidconsent", "vidlen", "vidquality"].forEach((id) => $(id).addEventListener("change", () => { $("vidmsg").className = "status"; vidRefresh(); }));
+["vidconsent", "vidlen", "vidquality", "vidstep"].forEach((id) => $(id).addEventListener("change", () => { $("vidmsg").className = "status"; vidRefresh(); }));
 
 function drawVidPreview(canvas, faces) {
   const c = $("vidcanvas"); c.width = canvas.width; c.height = canvas.height;
@@ -948,7 +980,8 @@ async function processVideo() {
   V.busy = true; V.cancel = false; V.result = null; vidRefresh(); refresh();
   const [boost, restore] = $("vidquality").value.split(":").map(Number);
   const secs = Number($("vidlen").value) ? Math.min(Number($("vidlen").value), V.dur) : V.dur;
-  const n = Math.max(1, Math.round(secs * V.fps)), W = V.w, H = V.h, fps = V.fps;
+  const step = Number($("vidstep").value), fps = V.fps / step;  // every 2nd frame: half the work, half the frame rate
+  const n = Math.max(1, Math.ceil(secs * V.fps / step)), W = V.w, H = V.h;
   const grab = document.createElement("canvas"); grab.width = W; grab.height = H; const gctx = grab.getContext("2d", { willReadFrequently: true });
   let encoder, aenc;
   try {
@@ -971,7 +1004,7 @@ async function processVideo() {
       if (V.cancel) throw new Error("cancelled");
       if (encErr) throw encErr;
       await Job.step(`frame ${i + 1} of ${n}: finding faces`);
-      await seekTo(Math.min(V.dur - 0.001, (i + 0.5) / fps));
+      await seekTo(Math.min(V.dur - 0.001, (i * step + 0.5) / V.fps));
       gctx.drawImage(V.el, 0, 0, W, H);
       if (i % Math.max(1, Math.round(fps * 2)) === 0) await nsfwCheck(grab, "video");
       const faces = smoothVidFaces(await detect(grab, 480), tracks);
