@@ -220,6 +220,10 @@ to 0.15 to recover identity.
 | | FaceFusion default | 0.982 | 0.028 | 0.036 | 0.671 |
 | | **FaceFusion Live, final default** | **0.994** | **0.010** | **0.019** | 0.706 |
 
+The web page, with the same mouth warp but the smaller `2d106det` landmarks, scores 0.974 / 0.046 / 0.027 (identity
+0.645) on the talking clip. On the fast-head clip it scores 0.973 / 0.018 / 0.024: lower lip and motion error than
+both reconstructed defaults, but slightly lower correlation than them (0.98).
+
 **Results:** FaceFusion Live follows lips and motion more closely than both reconstructed defaults on every lip and
 motion measure. The trade-off is the identity score: Deep-Live-Cam keeps more of the source person's lips and face
 texture because it doesn't keep the original lips. HyperSwap (*Settings › Swap model*) follows lips even more
