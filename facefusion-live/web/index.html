@@ -1,0 +1,1233 @@
+<title>FaceFusion Live Web</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a bench — model rack + inputs on the left, the result plate on the right; stacks on phones */
+:root {
+  --bg: #eef0f4; --panel: #ffffff; --line: #d6dae3; --fg: #161a22; --muted: #5b6474;
+  --accent: #4f46e5; --accent-fg: #ffffff; --ok: #0f8a5f; --warn: #b45309; --bad: #c2312f; --plate: #dfe3ea;
+  --display: "Sora", "Inter", system-ui, sans-serif; --body: "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12141a; --panel: #1a1d25; --line: #2b303c; --fg: #e8eaf0; --muted: #9aa3b5;
+  --accent: #8b87ff; --accent-fg: #0f1020; --ok: #34d399; --warn: #fbbf24; --bad: #f87171; --plate: #0c0e13; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12141a; --panel: #1a1d25; --line: #2b303c; --fg: #e8eaf0; --muted: #9aa3b5;
+  --accent: #8b87ff; --accent-fg: #0f1020; --ok: #34d399; --warn: #fbbf24; --bad: #f87171; --plate: #0c0e13; color-scheme: dark }
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--body); margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px }
+header { max-width: 1280px; margin: 0 auto 18px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; justify-content: space-between }
+h1 { font: 700 22px/1.2 var(--display); margin: 0; letter-spacing: -.01em }
+h1 small { font: 500 12px var(--mono); color: var(--muted); margin-left: 8px; letter-spacing: 0 }
+.lede { color: var(--muted); margin: 0; max-width: 62ch }
+.tabs { flex-basis: 100%; display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-top: 6px }
+.tabs button { font: 600 13.5px var(--body); color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; margin-bottom: -1px }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent) }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.activity { gap: 6px }
+.activity:has(#job[hidden]) .status:empty { display: none }
+.plate.live { min-height: 300px; background: #000 }
+#vidplate { background: #000; min-height: 260px }
+#vidplate canvas, #vidplate video { width: 100%; max-height: 62vh; object-fit: contain; display: block }
+.plate.live canvas { width: 100%; max-height: 70vh; object-fit: contain }
+.getapp { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; color: var(--muted) }
+.getapp strong { color: var(--fg) }
+a.btn { text-decoration: none; display: inline-block }
+.livestats { font: 12px var(--mono); color: var(--muted); min-height: 1.4em; font-variant-numeric: tabular-nums }
+.livestats b { color: var(--fg); font-weight: 500 }
+main { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 18px }
+@media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr) } }
+section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; min-width: 0 }
+.col { display: grid; gap: 18px; align-content: start; min-width: 0 }
+h2 { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 }
+.rack { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px }
+.rack li { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; font-size: 13px }
+.dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--line) }
+.rack li.ok .dot { background: var(--ok); border-color: var(--ok) }
+.rack li.err .dot { background: var(--bad); border-color: var(--bad) }
+.rack .meta { font: 12px var(--mono); color: var(--muted); text-align: right }
+.rack a { color: var(--accent) }
+progress { width: 100%; height: 6px; accent-color: var(--accent) }
+progress[hidden] { display: none }
+label.file { display: flex; align-items: center; gap: 10px; border: 1px dashed var(--line); border-radius: 8px; padding: 10px; cursor: pointer }
+label.file:hover { border-color: var(--accent) }
+label.file input { position: absolute; opacity: 0; width: 1px; height: 1px }
+label.file span { color: var(--muted); font-size: 13px }
+.btn { font: 600 14px var(--body); border-radius: 8px; padding: 9px 16px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg) }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.btn:focus-visible, label.file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center }
+.thumbwrap { position: relative; background: var(--plate); border-radius: 8px; overflow: hidden; min-height: 120px; display: grid; place-items: center }
+.thumbwrap canvas { display: block; max-width: 100%; height: auto; cursor: pointer }
+.empty { color: var(--muted); font-size: 13px; padding: 24px; text-align: center }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0 }
+.slider { display: grid; grid-template-columns: 120px 1fr 40px; gap: 8px; align-items: center; font-size: 13px }
+select { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 0 }
+.slider output { font: 12px var(--mono); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums }
+input[type=range] { accent-color: var(--accent); width: 100% }
+.consent { display: flex; gap: 8px; align-items: flex-start; font-size: 13px }
+.consent input { margin-top: 3px; accent-color: var(--accent) }
+.plate { background: var(--plate); border-radius: 10px; position: relative; min-height: 360px; display: grid; place-items: center; overflow: hidden; touch-action: none }
+.plate canvas { display: block; max-width: 100%; max-height: 72vh; height: auto }
+.plate .tag { position: absolute; top: 8px; font: 600 11px var(--mono); padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,.55); color: #fff; letter-spacing: .05em }
+.job { display: grid; gap: 6px }
+.job[hidden] { display: none }
+.job .bar { position: relative; height: 10px; border-radius: 6px; background: var(--plate); overflow: hidden }
+.job .fill { position: absolute; inset: 0; transform-origin: left center; transform: scaleX(0); background: var(--accent); transition: transform .35s ease-out }
+.job .stripes { position: absolute; top: 0; bottom: 0; left: -32px; right: 0; will-change: transform;
+  background: repeating-linear-gradient(-45deg, rgba(255,255,255,.30) 0 8px, transparent 8px 16px); animation: slide .7s linear infinite }
+@keyframes slide { to { transform: translateX(22.63px) } }
+.job .meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums }
+.job .meta strong { color: var(--fg); font-weight: 500 }
+.job.done .stripes { display: none }
+.job.done .fill { background: var(--ok) }
+.busy { position: absolute; inset: 0; display: grid; place-content: center; gap: 6px; text-align: center; background: rgba(10,12,18,.55); color: #fff; z-index: 2 }
+.busy[hidden] { display: none }
+.plate[aria-busy="true"] .empty { visibility: hidden }
+.busy b { font: 700 34px/1 var(--display); font-variant-numeric: tabular-nums }
+.busy span { font: 12.5px var(--mono); opacity: .9 }
+@media (prefers-reduced-motion: reduce) { .job .stripes { animation: none } }
+.status { font: 12.5px var(--mono); color: var(--muted); min-height: 1.5em; margin: 0 }
+.status.err { color: var(--bad) }
+.status.ok { color: var(--ok) }
+footer { max-width: 1280px; margin: 24px auto 0; color: var(--muted); font-size: 12.5px; display: grid; gap: 4px }
+footer p { margin: 0; max-width: 90ch }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important } }
+</style>
+
+<header>
+  <h1>FaceFusion Live <small>web&nbsp;&middot; runs in your browser</small></h1>
+  <p class="lede">Swap a face onto a photo or your live webcam. Nothing is uploaded: the models, photos and video stay on this device.</p>
+  <nav class="tabs" role="tablist" aria-label="Mode">
+    <button role="tab" id="tab-photo" aria-selected="true" aria-controls="photo-panel">Photo swap</button>
+    <button role="tab" id="tab-video" aria-selected="false" aria-controls="video-panel">Video swap</button>
+    <button role="tab" id="tab-live" aria-selected="false" aria-controls="live-panel">Live webcam</button>
+  </nav>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card" aria-labelledby="h-models">
+      <h2 id="h-models">Models &middot; built in</h2>
+      <ul class="rack" id="rack"></ul>
+      <p class="hint">The models come bundled with this page and load automatically (205&nbsp;MB, cached by your browser after the first visit). They run on this device. Licensed for non-commercial use only.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-src">
+      <h2 id="h-src">1&nbsp;&middot; Source face</h2>
+      <label class="file" for="srcfile"><input id="srcfile" type="file" accept="image/*"><strong>Choose photo&hellip;</strong><span id="srcname">the face to use</span></label>
+      <div class="thumbwrap" id="srcwrap"><div class="empty">No photo yet</div></div>
+    </section>
+
+    <section class="card photo-only" aria-labelledby="h-tgt">
+      <h2 id="h-tgt">2&nbsp;&middot; Target photo</h2>
+      <label class="file" for="tgtfile"><input id="tgtfile" type="file" accept="image/*"><strong>Choose photo&hellip;</strong><span id="tgtname">the photo to change</span></label>
+      <div class="thumbwrap" id="tgtwrap"><div class="empty">No photo yet</div></div>
+      <p class="hint" id="tgthint">Click faces to choose which to replace. Faces you don't select stay as they are.</p>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card activity" aria-label="Progress">
+      <div class="job" id="job" hidden>
+        <div class="bar" role="progressbar" aria-labelledby="jobtitle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="jobbar"><div class="fill" id="jobfill"></div><div class="stripes"></div></div>
+        <div class="meta"><span><strong id="jobtitle"></strong> <span id="jobstep"></span></span><span id="jobtime"></span></div>
+      </div>
+      <p class="status" id="status" role="status">Loading the built-in models&hellip;</p>
+    </section>
+
+    <section class="card photo-only" id="photo-panel" role="tabpanel" aria-labelledby="h-res">
+      <h2 id="h-res">Result&nbsp;&middot; drag to compare</h2>
+      <div class="plate" id="plate"><div class="empty">Your result appears here.</div><div class="busy" id="busy" hidden aria-hidden="true"><b id="busypct">0%</b><span id="busylbl">Working</span></div></div>
+      <div class="slider"><label for="quality">Quality</label><select id="quality">
+        <option value="1:0">Fast &middot; 128&nbsp;px, no restoration</option>
+        <option value="1:1">Balanced &middot; 128&nbsp;px + restoration</option>
+        <option value="2:1" selected>High &middot; 256&nbsp;px + restoration</option>
+        <option value="4:1">Max &middot; 512&nbsp;px + restoration (slow)</option></select><span></span></div>
+      <div class="slider"><label for="enhance">Detail restoration</label><input id="enhance" type="range" min="0" max="100" value="80"><output id="enhancev">0.80</output></div>
+      <div class="slider"><label for="blend">Blend strength</label><input id="blend" type="range" min="0" max="100" value="100"><output id="blendv">1.00</output></div>
+      <div class="slider"><label for="feather">Edge feather</label><input id="feather" type="range" min="5" max="60" value="30"><output id="featherv">0.30</output></div>
+      <label class="consent"><input id="consent" type="checkbox"> <span>I have the consent of every person whose face is used or replaced. I will not create intimate, deceptive or harassing content.</span></label>
+      <div class="row">
+        <button class="btn primary" id="swap" disabled>Swap face</button>
+        <button class="btn" id="save" disabled>Save PNG</button>
+      </div>
+    </section>
+
+    <section class="card video-only" id="video-panel" role="tabpanel" aria-labelledby="h-video" hidden>
+      <h2 id="h-video">Video swap&nbsp;&middot; with original sound</h2>
+      <label class="file" for="vidfile"><input id="vidfile" type="file" accept="video/*"><strong>Choose video&hellip;</strong><span id="vidname">MP4, MOV or WebM</span></label>
+      <div class="plate" id="vidplate"><div class="empty" id="videmmpty">Choose a video. Its first frame appears here so you can pick who to replace.</div>
+        <canvas id="vidcanvas" hidden></canvas><video id="vidplayer" controls playsinline hidden></video></div>
+      <p class="hint" id="vidinfo">Click a face in the preview to choose who to replace (several allowed). With none chosen, the largest face in each frame is replaced.</p>
+      <div class="slider"><label for="vidquality">Quality</label><select id="vidquality">
+        <option value="1:0">Fast &middot; 128&nbsp;px, no restoration</option>
+        <option value="1:1" selected>Balanced &middot; 128&nbsp;px + restoration</option>
+        <option value="2:1">High &middot; 256&nbsp;px + restoration (slow)</option></select><span></span></div>
+      <div class="slider"><label for="vidlen">Process</label><select id="vidlen">
+        <option value="5">First 5 seconds</option><option value="10" selected>First 10 seconds</option>
+        <option value="30">First 30 seconds</option><option value="0">Whole video</option></select><span></span></div>
+      <div class="slider"><label for="vidstep">Frames</label><select id="vidstep">
+        <option value="1" selected>Every frame (smoothest)</option><option value="2">Every 2nd frame (2&times; faster, half frame rate)</option></select><span></span></div>
+      <p class="hint" id="videstimate"></p>
+      <label class="consent"><input id="vidlips" type="checkbox" checked> <span>Follow the speech exactly (lip sync)</span></label>
+      <label class="consent"><input id="vidconsent" type="checkbox"> <span>I have the consent of every person whose face is used or replaced. The video carries a visible "AI-generated" label.</span></label>
+      <div class="row">
+        <button class="btn primary" id="vidstart" disabled>Process video</button>
+        <button class="btn" id="vidcancel" disabled>Cancel</button>
+        <button class="btn" id="vidsave" disabled>Save MP4</button>
+      </div>
+      <p class="status" id="vidmsg" role="status"></p>
+    </section>
+
+    <section class="card live-only" id="live-panel" role="tabpanel" aria-labelledby="h-live" hidden>
+      <h2 id="h-live">Live webcam&nbsp;&middot; real-time swap</h2>
+      <div class="plate live" id="liveplate"><div class="empty" id="liveempty">Choose a source face, tick consent and press Start camera.</div>
+        <canvas id="livecanvas" hidden></canvas></div>
+      <div class="livestats" id="livestats" aria-live="off"></div>
+      <div class="slider"><label for="camsel">Camera</label><select id="camsel"><option value="">Default camera</option></select><span></span></div>
+      <div class="slider"><label for="proc">Processor</label><select id="proc">
+        <option value="auto">Automatic (graphics card when available)</option><option value="cpu">CPU only</option></select><span></span></div>
+      <div class="slider"><label for="camres">Resolution</label><select id="camres">
+        <option value="640x480" selected>640&times;480 (fastest)</option><option value="1280x720">1280&times;720</option></select><span></span></div>
+      <label class="consent"><input id="liveall" type="checkbox"> <span>Swap every face (otherwise only the largest)</span></label>
+      <label class="consent"><input id="livelips" type="checkbox" checked> <span>Follow the speech exactly (lip sync)</span></label>
+      <label class="consent"><input id="liverestore" type="checkbox"> <span>Detail restoration (sharper, much slower)</span></label>
+      <label class="consent"><input id="liveconsent" type="checkbox"> <span>I have the consent of every person whose face is used or shown. The preview carries a visible "AI-generated" label.</span></label>
+      <div class="row">
+        <button class="btn primary" id="livestart" disabled>Start camera</button>
+        <button class="btn" id="livebypass" disabled aria-pressed="false">Show original</button>
+      </div>
+      <p class="status" id="livemsg" role="status"></p>
+      <div class="getapp">
+        <div><strong>Prefer an app?</strong> The Windows version does live webcam swapping on your graphics card, plus video with sound and a virtual camera for Zoom, Teams or OBS. It's a single file and needs no installation.</div>
+        <div class="row"><a class="btn primary" href="https://github.com/Markshitz/facefusion/releases/download/windows-app/FaceFusionLive.exe" target="_blank" rel="noopener">Download for Windows (.exe)</a>
+          <a class="btn" href="https://github.com/Markshitz/facefusion/releases/tag/windows-app" target="_blank" rel="noopener">Other downloads</a></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <p>Same models and pipeline as the FaceFusion Live desktop app (SCRFD &rarr; ArcFace &rarr; inswapper). Explicit content is refused. Saved images carry a visible "AI-generated" label.</p>
+  <p>Inside claude.ai, artifacts are not allowed to use the camera. For live webcam swapping, <a href="https://github.com/Markshitz/facefusion/releases/download/windows-app/FaceFusionLive.exe" target="_blank" rel="noopener">download the Windows app (.exe)</a>, a single file with no installation that also does video with sound, or open this page from its own web address.</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.wasm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.1/build/mp4-muxer.js"></script>
+<script type="text/plain" id="worker-src">
+// Runs ONNX Runtime off the main thread so the page (and its progress bar) stays responsive.
+let sess = {};
+onmessage = async (e) => {
+  const m = e.data;
+  try {
+    if (m.type === "init") {
+      importScripts(m.ortUrl); ort.env.wasm.wasmPaths = m.base; ort.env.wasm.numThreads = m.threads || 1;
+      if (m.wasmBinary) ort.env.wasm.wasmBinary = m.wasmBinary;  // GPU runtime handed over as bytes (split file on artifacts)
+      postMessage({ id: m.id, ok: true });
+    } else if (m.type === "create") {
+      const s = await ort.InferenceSession.create(m.bytes, m.opts);
+      if (m.warm) {  // prove the GPU session works (and is not pathologically slow) before using it
+        const feeds = {}, t0 = performance.now();
+        for (const [k, v] of Object.entries(m.warm)) feeds[k] = new ort.Tensor("float32", new Float32Array(v.reduce((a, b) => a * b, 1)), v);
+        await Promise.race([s.run(feeds), new Promise((_, rej) => setTimeout(() => rej(new Error("GPU test run timed out")), m.warmTimeout || 15000))]);
+        postMessage({ id: m.id, ok: true, inputNames: s.inputNames, outputNames: s.outputNames, warmMs: performance.now() - t0 });
+        sess[m.key] = s; return;
+      }
+      sess[m.key] = s;
+      postMessage({ id: m.id, ok: true, inputNames: s.inputNames, outputNames: s.outputNames });
+    } else if (m.type === "run") {
+      const feeds = {}; for (const [k, v] of Object.entries(m.feeds)) feeds[k] = new ort.Tensor(v.type, v.data, v.dims);
+      const out = await sess[m.key].run(feeds), res = {}, tr = [];
+      for (const [k, v] of Object.entries(out)) { res[k] = { data: v.data, dims: v.dims }; tr.push(v.data.buffer); }
+      postMessage({ id: m.id, ok: true, res }, tr);
+    }
+  } catch (err) { postMessage({ id: m.id, ok: false, error: String((err && err.message) || err) }); }
+};
+</script>
+<script>
+"use strict";
+// On a normal web host, enable multi-threaded CPU inference via a service worker (once; never inside claude.ai).
+(function enableIsolation() {
+  if (self.crossOriginIsolated || window.top !== window.self || !("serviceWorker" in navigator) || !window.isSecureContext) return;
+  let tried = false; try { tried = sessionStorage.getItem("ffl-coi") === "1"; } catch (e) {}
+  navigator.serviceWorker.register("coi-sw.js").then(() => {
+    if (!tried && !navigator.serviceWorker.controller) { try { sessionStorage.setItem("ffl-coi", "1"); } catch (e) {} location.reload(); }
+  }, () => {});
+})();
+const $ = (id) => document.getElementById(id);
+const MODELS = [
+  { key: "det", label: "Face detector (SCRFD)" },
+  { key: "arc", label: "Identity (ArcFace)" },
+  { key: "swap", label: "Face swapper (inswapper)" },
+  { key: "nsfw", label: "Content safeguard" },
+  { key: "enh", label: "Face restoration (GPEN)" },
+  { key: "lmk", label: "Landmarks (lips, eyes)" },
+];
+const T = {
+  arc112: [[0.34191607,0.46157411],[0.65653393,0.45983393],[0.50022500,0.64050536],[0.37097589,0.82469196],[0.63151696,0.82325089]],
+  arc128: [[0.36167656,0.40387734],[0.63696719,0.40235469],[0.50019687,0.56044219],[0.38710391,0.72160547],[0.61507734,0.72034453]],
+  ffhq: [[0.37691676,0.46864664],[0.62285697,0.46912813],[0.50123859,0.61331904],[0.39308822,0.72541100],[0.61150205,0.72490465]],
+};
+const S = { sess: {}, emap: null, src: null, srcFaces: [], srcIdx: 0, tgt: null, tgtFaces: [], sel: new Set(), result: null, split: 0.5, busy: false };
+
+ort.env.wasm.wasmPaths = new URL("./", location.href).href;
+ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+
+async function fetchGpuRuntime(man) {
+  Job.start("Loading graphics-card runtime", man.bytes);
+  const buf = new Uint8Array(man.bytes); let o = 0;
+  try {
+    for (const part of man.parts) {
+      const r = await fetch("runtime/" + part); if (!r.ok) throw new Error(`${part}: HTTP ${r.status}`);
+      const rd = r.body.getReader();
+      for (;;) { const { done, value } = await rd.read(); if (done) break; buf.set(value, o); o += value.length;
+        Job.label = `${(o / 1048576).toFixed(0)} / ${(man.bytes / 1048576).toFixed(0)} MB`; Job.advance(value.length); }
+    }
+    if (o !== man.bytes) throw new Error("incomplete download");
+    if (self.crypto?.subtle) {
+      const h = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))].map((x) => x.toString(16).padStart(2, "0")).join("");
+      if (h !== man.sha256) throw new Error("checksum mismatch");
+    }
+    Job.finish("");
+    return buf.buffer;
+  } catch (e) { Job.finish(""); console.warn("GPU runtime download failed, using CPU:", e); return null; }
+}
+// Heavy models try the GPU (with a test run of these input shapes); ArcFace and the content check stay on CPU.
+const GPU_WARM = { det: { input: [1, 3, 320, 320] }, swap: { target: [1, 3, 128, 128], source: [1, 512] }, enh: { input: [1, 3, 256, 256] } };
+const cpuOnly = () => { try { return localStorage.getItem("ffl-cpu") === "1"; } catch (e) { return false; } };
+// ---- inference backend: a Web Worker when possible (keeps the UI live), else the main thread ----
+const Backend = {
+  worker: null, seq: 0, pending: new Map(), gpu: false, onGpu: new Set(), threads: 1,
+  get label() {
+    const cpu = `CPU, ${this.threads > 1 ? this.threads + " threads" : "1 thread"}`;
+    return this.onGpu.has("swap") ? `graphics card (WebGPU) + ${cpu}` : cpu;
+  },
+  call(msg, transfer = []) {
+    return new Promise((resolve, reject) => { const id = ++this.seq; this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ ...msg, id }, transfer); });
+  },
+  async init() {
+    try {
+      const url = URL.createObjectURL(new Blob([$("worker-src").textContent], { type: "text/javascript" }));
+      this.worker = new Worker(url);
+      this.worker.onmessage = (e) => { const p = this.pending.get(e.data.id); if (!p) return; this.pending.delete(e.data.id);
+        e.data.ok ? p.resolve(e.data) : p.reject(new Error(e.data.error)); };
+      this.worker.onerror = (e) => { for (const p of this.pending.values()) p.reject(new Error(e.message || "worker error")); this.pending.clear(); };
+      // WebGPU needs the larger JSEP runtime next to the page; artifacts can't host it (15 MB file limit), web hosts can.
+      let ortUrl = document.querySelector('script[src*="onnxruntime-web"]').src, wasmBinary = null;
+      try {
+        const adapter = !cpuOnly() && navigator.gpu ? await navigator.gpu.requestAdapter() : null;
+        if (adapter) {
+          if (await fetch("ort-wasm-simd-threaded.asyncify.wasm", { method: "HEAD" }).then((r) => r.ok, () => false)) this.gpu = true;  // web host: whole file
+          else {  // artifact: the 27 MB GPU runtime is published in <15 MB parts and joined here
+            const man = await fetch("runtime/gpu.json").then((r) => (r.ok ? r.json() : null), () => null);
+            if (man) { wasmBinary = await fetchGpuRuntime(man); this.gpu = !!wasmBinary; }
+          }
+          if (this.gpu) ortUrl = ortUrl.replace("ort.wasm.min.js", "ort.webgpu.min.js");
+        }
+      } catch (e) { console.warn("GPU runtime unavailable:", e); this.gpu = false; wasmBinary = null; }
+      this.threads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+      await Promise.race([this.call({ type: "init", ortUrl, base: ort.env.wasm.wasmPaths, threads: this.threads, wasmBinary },
+                                    wasmBinary ? [wasmBinary] : []),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("worker timeout")), 15000))]);
+    } catch (e) { console.warn("Worker unavailable, running models on the page:", e); this.worker?.terminate(); this.worker = null; }
+  },
+  async create(key, bytes, opts) {
+    if (!this.worker) return ort.InferenceSession.create(bytes, opts);
+    let info;
+    const warm = GPU_WARM[key];
+    if (this.gpu && warm && !cpuOnly()) {
+      const warmTimeout = Number(new URLSearchParams(location.search).get("gputimeout")) || 25000;  // test hook
+      try { info = await this.call({ type: "create", key, bytes: bytes.slice(), opts: { ...opts, executionProviders: ["webgpu", "wasm"] }, warm, warmTimeout });
+        this.onGpu.add(key); }
+      catch (e) { console.warn(`WebGPU failed for ${key}, using CPU:`, e); }
+    }
+    if (!info) info = await this.call({ type: "create", key, bytes, opts }, [bytes.buffer]);
+    const self = this;
+    return { inputNames: info.inputNames, outputNames: info.outputNames,
+      async run(feeds) {
+        const f = {}, tr = [];
+        for (const [k, v] of Object.entries(feeds)) { const d = v.data.slice(); f[k] = { type: v.type, data: d, dims: v.dims }; tr.push(d.buffer); }
+        return (await self.call({ type: "run", key, feeds: f }, tr)).res;
+      } };
+  },
+};
+
+function status(msg, cls = "") { const s = $("status"); s.textContent = msg; s.className = "status " + cls; }
+// One progress bar for every wait: steps done / total, current step, elapsed and estimated time left.
+const Job = {
+  active: false, timer: null,
+  start(title, total, { overlay = false } = {}) {
+    Object.assign(this, { active: true, title, total: Math.max(total, 1), done: 0, label: "", t0: performance.now(), tLast: performance.now(), overlay });
+    $("job").hidden = false; $("job").classList.remove("done"); $("jobtitle").textContent = title;
+    $("busy").hidden = !overlay; if (overlay) $("plate").setAttribute("aria-busy", "true");
+    status("");
+    clearInterval(this.timer); this.timer = setInterval(() => this.render(), 500); this.render();
+  },
+  step(label) { if (!this.active) return; this.label = label; this.render(); return frame(); },
+  advance(n = 1) { if (!this.active) return; this.done = Math.min(this.total, this.done + n); this.tLast = performance.now(); this.render(); },
+  render() {
+    if (!this.active) return;
+    const now = performance.now(), el = (now - this.t0) / 1000;
+    // Average time per finished unit predicts the rest; the current unit fills in smoothly (capped below the next mark).
+    const per = this.done ? (this.tLast - this.t0) / 1000 / this.done : null, inStep = (now - this.tLast) / 1000;
+    const partial = per ? Math.min(0.9, inStep / per) : 0, shown = Math.min(this.total, this.done + partial);
+    const pct = Math.round(100 * shown / this.total);
+    $("jobfill").style.transform = `scaleX(${shown / this.total})`; $("jobbar").setAttribute("aria-valuenow", pct);
+    $("jobstep").textContent = this.label ? `\u00b7 ${this.label}` : "";
+    const left = per !== null ? Math.max(1, per * (this.total - this.done) - inStep) : null;
+    $("jobtime").textContent = `${pct}% \u00b7 ${fmtS(el)} elapsed` + (this.done >= this.total ? ""
+      : left !== null ? ` \u00b7 about ${fmtS(left)} left` : " \u00b7 estimating time left\u2026");
+    $("busypct").textContent = `${pct}%`; $("busylbl").textContent = this.label || this.title;
+    if (this.overlay) $("swap").textContent = `Working\u2026 ${pct}%`;
+  },
+  finish(msg, cls = "ok") {
+    if (!this.active) { if (msg) status(msg, cls); return; }
+    clearInterval(this.timer); this.done = cls === "ok" ? this.total : this.done; this.render(); this.active = false;
+    $("job").classList.add("done"); $("busy").hidden = true; $("plate").removeAttribute("aria-busy");
+    $("jobstep").textContent = cls === "ok" ? "\u00b7 done" : "\u00b7 stopped";
+    $("jobtime").textContent = `${cls === "ok" ? "100%" : ""} ${fmtS((performance.now() - this.t0) / 1000)} total`.trim();
+    $("swap").textContent = "Swap face";
+    if (msg) status(msg, cls);
+  },
+};
+const fmtS = (s) => s < 60 ? `${Math.max(0, Math.round(s))} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
+// Yield so the page can repaint. Animation frames can be throttled in cross-origin iframes (as inside claude.ai),
+// so a short timer guarantees we never stall waiting for one.
+const frame = () => new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; setTimeout(r, 0); } };
+  requestAnimationFrame(go); setTimeout(go, 50); });
+
+function renderRack(progress = {}) {
+  $("rack").innerHTML = "";
+  for (const m of MODELS) {
+    const li = document.createElement("li");
+    li.className = S.sess[m.key] ? "ok" : (progress[m.key] === "error" ? "err" : "");
+    li.innerHTML = `<span class="dot"></span><span></span><span class="meta"></span>`;
+    li.children[1].textContent = m.label;
+    li.children[2].textContent = S.sess[m.key] ? "ready" : (typeof progress[m.key] === "string" ? progress[m.key] : "waiting");
+    $("rack").appendChild(li);
+  }
+}
+
+async function loadBundledModels() {
+  const progress = {};
+  try {
+    await Backend.init();
+    const man = await (await fetch("models/manifest.json")).json();
+    const bytes = Object.values(man).reduce((n, m) => n + m.bytes, 0) + 512 * 512 * 4, START = 8 << 20; // starting a model ~ 8 MB of download time
+    S.loadingModels = true; Job.start("Loading built-in models", bytes + MODELS.length * START);
+    status("First visit downloads the models once; later visits load from your browser cache.");
+    let got = 0, cur = "";
+    const bump = (n) => { got += n; Job.label = `${cur} \u00b7 ${(got / 1048576).toFixed(0)} / ${(bytes / 1048576).toFixed(0)} MB`; Job.advance(n); };
+    async function fetchBytes(url) {
+      const r = await fetch(url); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+      const rd = r.body.getReader(), chunks = []; let n = 0;
+      for (;;) { const { done: d, value } = await rd.read(); if (d) break; chunks.push(value); n += value.length; bump(value.length); }
+      const out = new Uint8Array(n); let o = 0; for (const c of chunks) { out.set(c, o); o += c.length; } return out;
+    }
+    S.emap = new Float32Array((await fetchBytes("models/emap.wasm")).buffer);
+    for (const m of MODELS) {
+      const info = man[m.key]; progress[m.key] = "downloading"; renderRack(progress); cur = `downloading ${m.label}`;
+      const buf = new Uint8Array(info.bytes); let o = 0;
+      for (const part of info.parts) { const b = await fetchBytes("models/" + part); buf.set(b, o); o += b.length; }
+      if (o !== info.bytes) throw new Error(`${m.key}: incomplete download`);
+      if (self.crypto?.subtle) {  // checksum needs a secure (https) page; the size check above always runs
+        const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))].map((x) => x.toString(16).padStart(2, "0")).join("");
+        if (hash !== info.sha256) throw new Error(`${m.key}: checksum mismatch, reload the page`);
+      }
+      progress[m.key] = "starting"; renderRack(progress); await Job.step(`starting ${m.label}`);
+      S.sess[m.key] = await Backend.create(m.key, buf, { executionProviders: ["wasm"], graphOptimizationLevel: "all",
+        extra: { session: { disable_quant_qdq: "1" } } });
+      Job.advance(START); renderRack(progress);
+    }
+    S.loadingModels = false;
+    Job.finish("Models ready. Choose a source face and a target photo.");
+    if (S.src && !S.srcFaces.length) await analyzeSource();
+    if (S.tgt && !S.tgtFaces.length) await analyzeTarget();
+  } catch (e) {
+    for (const m of MODELS) if (!S.sess[m.key]) progress[m.key] = "error";
+    S.loadingModels = false; S.modelError = true; renderRack(progress); Job.finish(`Could not load the built-in models: ${e.message || e}. Reload the page to try again.`, "err"); console.error(e);
+  }
+  refresh();
+}
+
+// ---- image helpers ----
+async function fileToCanvas(file, maxSide = 8192) {
+  const bmp = await createImageBitmap(file);
+  const s = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas"); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); return c;
+}
+function similarity(src, dstT, size) { // Umeyama 2D: returns [a,b,tx,c,d,ty] with dst = M*src
+  const dst = dstT.map(([x, y]) => [x * size, y * size]); const n = src.length;
+  let mx = 0, my = 0, nx = 0, ny = 0;
+  for (let i = 0; i < n; i++) { mx += src[i][0]; my += src[i][1]; nx += dst[i][0]; ny += dst[i][1]; }
+  mx /= n; my /= n; nx /= n; ny /= n;
+  let sxx = 0, sxy = 0, var_ = 0;
+  for (let i = 0; i < n; i++) {
+    const ax = src[i][0] - mx, ay = src[i][1] - my, bx = dst[i][0] - nx, by = dst[i][1] - ny;
+    sxx += ax * bx + ay * by; sxy += ax * by - ay * bx; var_ += ax * ax + ay * ay;
+  }
+  const a = sxx / var_, b = sxy / var_;
+  return [a, -b, nx - (a * mx - b * my), b, a, ny - (b * mx + a * my)];
+}
+function invert(m) { const [a, b, c, d, e, f] = m; const det = a * e - b * d;
+  return [e / det, -b / det, (b * f - c * e) / det, -d / det, a / det, (c * d - a * f) / det]; }
+function warp(srcCanvas, m, size) {
+  const c = document.createElement("canvas"); c.width = c.height = size; const g = c.getContext("2d");
+  g.imageSmoothingQuality = "high"; g.setTransform(m[0], m[3], m[1], m[4], m[2], m[5]); g.drawImage(srcCanvas, 0, 0); return c;
+}
+function toTensor(canvas, mean, scale, layout = "nchw", bgr = false) {
+  const w = canvas.width, h = canvas.height, d = canvas.getContext("2d").getImageData(0, 0, w, h).data;
+  const out = new Float32Array(3 * w * h), n = w * h;
+  for (let i = 0; i < n; i++) for (let ch = 0; ch < 3; ch++) {
+    const v = (d[i * 4 + (bgr ? 2 - ch : ch)] - mean[ch]) * scale;
+    if (layout === "nchw") out[ch * n + i] = v; else out[i * 3 + ch] = v;
+  }
+  return layout === "nchw" ? new ort.Tensor("float32", out, [1, 3, h, w]) : new ort.Tensor("float32", out, [1, h, w, 3]);
+}
+
+// ---- models ----
+async function detect(canvas, size = 640) {
+  const s = size / Math.max(canvas.width, canvas.height);
+  const c = document.createElement("canvas"); c.width = c.height = size; const g = c.getContext("2d");
+  g.fillStyle = "#000"; g.fillRect(0, 0, size, size); g.drawImage(canvas, 0, 0, canvas.width * s, canvas.height * s);
+  const sess = S.sess.det; const out = await sess.run({ [sess.inputNames[0]]: toTensor(c, [127.5, 127.5, 127.5], 1 / 128) });
+  const o = sess.outputNames.map((n) => out[n].data); const cand = [];
+  [8, 16, 32].forEach((stride, k) => {
+    const fw = size / stride, sc = o[k], bb = o[k + 3], kp = o[k + 6];
+    for (let i = 0; i < sc.length; i++) {
+      if (sc[i] < 0.5) continue;
+      const a = Math.floor(i / 2), ax = (a % fw) * stride, ay = Math.floor(a / fw) * stride;
+      const box = [ax - bb[i * 4] * stride, ay - bb[i * 4 + 1] * stride, ax + bb[i * 4 + 2] * stride, ay + bb[i * 4 + 3] * stride].map((v) => v / s);
+      const kps = []; for (let j = 0; j < 5; j++) kps.push([(ax + kp[i * 10 + j * 2] * stride) / s, (ay + kp[i * 10 + j * 2 + 1] * stride) / s]);
+      cand.push({ box, kps, score: sc[i] });
+    }
+  });
+  cand.sort((p, q) => q.score - p.score); const keep = [];
+  for (const f of cand) if (keep.every((k) => iou(k.box, f.box) < 0.4)) keep.push(f);
+  return keep.sort((p, q) => area(q.box) - area(p.box));
+}
+const area = (b) => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+function iou(a, b) { const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const i = w * h; return i / (area(a) + area(b) - i); }
+async function embed(canvas, kps) {
+  const crop = warp(canvas, similarity(kps, T.arc112, 112), 112); const sess = S.sess.arc;
+  const e = (await sess.run({ [sess.inputNames[0]]: toTensor(crop, [127.5, 127.5, 127.5], 1 / 127.5) }))[sess.outputNames[0]].data;
+  let n = 0; for (const v of e) n += v * v; n = Math.sqrt(n); return Float32Array.from(e, (v) => v / n);
+}
+function latent(emb) {
+  const l = new Float32Array(512);
+  for (let j = 0; j < 512; j++) { let s = 0; for (let i = 0; i < 512; i++) s += emb[i] * S.emap[i * 512 + j]; l[j] = s; }
+  let n = 0; for (const v of l) n += v * v; n = Math.sqrt(n); return l.map((v) => v / n);
+}
+async function nsfwCheck(canvas, what) {
+  const c = document.createElement("canvas"); c.width = c.height = 224; c.getContext("2d").drawImage(canvas, 0, 0, 224, 224);
+  const sess = S.sess.nsfw;
+  const p = (await sess.run({ [sess.inputNames[0]]: toTensor(c, [104, 117, 123], 1, "nhwc", true) }))[sess.outputNames[0]].data[1];
+  if (p > 0.8) throw new Error(`The ${what} appears to contain explicit content and was refused.`);
+}
+function boxMask(size, blur, padding = 0) {
+  const m = new Float32Array(size * size), amount = Math.round(size * 0.5 * blur);
+  const pad = Math.max(Math.floor(amount / 2), 1, Math.round(size * padding));
+  const ramp = (v) => { const t = (v - pad) / Math.max(amount * 0.5, 1); return Math.max(0, Math.min(1, t)); };
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const d = Math.min(x, y, size - 1 - x, size - 1 - y); const r = ramp(d); m[y * size + x] = r * r * (3 - 2 * r);
+  }
+  return m;
+}
+// Paste an RGB float image (0..255, HWC) back through the inverse of M, with a feathered alpha mask.
+function pasteBack(out, rgb, size, M, mask, strength) {
+  const c = document.createElement("canvas"); c.width = c.height = size; const g = c.getContext("2d"); const img = g.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) { for (let ch = 0; ch < 3; ch++) img.data[i * 4 + ch] = Math.max(0, Math.min(255, rgb[i * 3 + ch]));
+    img.data[i * 4 + 3] = mask[i] * strength * 255; }
+  g.putImageData(img, 0, 0);
+  const inv = invert(M), o = out.getContext("2d"); o.save(); o.imageSmoothingQuality = "high";
+  o.setTransform(inv[0], inv[3], inv[1], inv[4], inv[2], inv[5]); o.drawImage(c, 0, 0); o.restore();
+}
+// ---- precise landmarks (InsightFace 2d106det): alignment from measured eyes/nose/mouth + lip outline ----
+const LM = { eyeL: [35, 41, 42, 39, 37, 33], eyeR: [89, 95, 96, 93, 91, 90], nose: 86, mL: 52, mR: 61,
+  lips: [52, 64, 63, 71, 67, 68, 61, 58, 59, 53, 56, 55], inner: [65, 66, 62, 70, 69, 57, 60, 54],
+  anchors: [77, 78, 79, 80, 85, 84, 83, 5, 6, 7, 8, 0, 24, 23, 22, 21] };
+async function refine(canvas, f) {
+  if (!S.sess.lmk) return f;
+  const [x1, y1, x2, y2] = f.box, sc = 192 / (Math.max(x2 - x1, y2 - y1) * 1.5), cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+  const M = [sc, 0, 96 - cx * sc, 0, sc, 96 - cy * sc], inv = invert(M), sess = S.sess.lmk;
+  const o = (await sess.run({ [sess.inputNames[0]]: toTensor(warp(canvas, M, 192), [0, 0, 0], 1) }))[sess.outputNames[0]].data;
+  const p = []; for (let k = 0; k < 106; k++) { const u = (o[2 * k] + 1) * 96, v = (o[2 * k + 1] + 1) * 96;
+    p.push([inv[0] * u + inv[1] * v + inv[2], inv[3] * u + inv[4] * v + inv[5]]); }
+  const mean = (ix) => ix.reduce((a, i) => [a[0] + p[i][0] / ix.length, a[1] + p[i][1] / ix.length], [0, 0]);
+  return { ...f, kps: [mean(LM.eyeL), mean(LM.eyeR), p[LM.nose], p[LM.mL], p[LM.mR]], lips: LM.lips.map((i) => p[i]), pts: p };
+}
+// Keep the target's own lips and mouth opening: exact lip sync (the swap model alone under-opens the mouth).
+function restoreLips(out, orig, lips) {
+  const n = lips.length, c = lips.reduce((a, q) => [a[0] + q[0] / n, a[1] + q[1] / n], [0, 0]);
+  const pts = lips.map((q) => [c[0] + (q[0] - c[0]) * 1.06, c[1] + (q[1] - c[1]) * 1.06]);
+  const width = Math.hypot(lips[6][0] - lips[0][0], lips[6][1] - lips[0][1]); if (width < 4) return;
+  const pad = Math.ceil(width * 0.35) + 4;
+  const x0 = Math.max(0, Math.floor(Math.min(...pts.map((q) => q[0])) - pad)), y0 = Math.max(0, Math.floor(Math.min(...pts.map((q) => q[1])) - pad));
+  const x1 = Math.min(out.width, Math.ceil(Math.max(...pts.map((q) => q[0])) + pad)), y1 = Math.min(out.height, Math.ceil(Math.max(...pts.map((q) => q[1])) + pad));
+  const w = x1 - x0, h = y1 - y0; if (w < 2 || h < 2) return;
+  const mk = (cw, ch) => Object.assign(document.createElement("canvas"), { width: cw, height: ch });
+  const m = mk(w, h), mg = m.getContext("2d"); mg.fillStyle = "#fff"; mg.beginPath();
+  pts.forEach((q, k) => (k ? mg.lineTo(q[0] - x0, q[1] - y0) : mg.moveTo(q[0] - x0, q[1] - y0))); mg.closePath(); mg.fill();
+  // feather: shrink then enlarge with smoothing (works in every browser, unlike ctx.filter)
+  const f = Math.max(2, Math.round(width * 0.09)), sm = mk(Math.max(1, Math.ceil(w / f)), Math.max(1, Math.ceil(h / f)));
+  const sg = sm.getContext("2d"); sg.imageSmoothingQuality = "high"; sg.drawImage(m, 0, 0, sm.width, sm.height);
+  const soft = mk(w, h), fg = soft.getContext("2d"); fg.imageSmoothingQuality = "high"; fg.drawImage(sm, 0, 0, w, h);
+  const t = mk(w, h), tg = t.getContext("2d"); tg.drawImage(orig, x0, y0, w, h, 0, 0, w, h);
+  tg.globalCompositeOperation = "destination-in"; tg.drawImage(soft, 0, 0);
+  out.getContext("2d").drawImage(t, x0, y0);
+}
+// Lip sync that keeps the source's lips: reshape the swapped mouth so its lip points land on the original's
+// (piecewise-affine warp over a Delaunay mesh with fixed nose/jaw anchors), then show the original opening.
+function delaunay(P) {
+  const xs = P.map((p) => p[0]), ys = P.map((p) => p[1]);
+  const mx = Math.min(...xs), my = Math.min(...ys), d = Math.max(Math.max(...xs) - mx, Math.max(...ys) - my) * 20 + 10;
+  const pts = [...P, [mx - d, my - d], [mx + 2 * d, my - d], [mx - d, my + 2 * d]], n = P.length;
+  let tris = [[n, n + 1, n + 2]];
+  const circ = (t) => { const [a, b, c] = t.map((i) => pts[i]); const D = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1])) || 1e-9;
+    const ux = ((a[0] ** 2 + a[1] ** 2) * (b[1] - c[1]) + (b[0] ** 2 + b[1] ** 2) * (c[1] - a[1]) + (c[0] ** 2 + c[1] ** 2) * (a[1] - b[1])) / D;
+    const uy = ((a[0] ** 2 + a[1] ** 2) * (c[0] - b[0]) + (b[0] ** 2 + b[1] ** 2) * (a[0] - c[0]) + (c[0] ** 2 + c[1] ** 2) * (b[0] - a[0])) / D;
+    return [ux, uy, (a[0] - ux) ** 2 + (a[1] - uy) ** 2]; };
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], bad = tris.filter((t) => { const [ux, uy, r2] = circ(t); return (p[0] - ux) ** 2 + (p[1] - uy) ** 2 < r2; });
+    const edges = [];
+    for (const t of bad) for (const e of [[t[0], t[1]], [t[1], t[2]], [t[2], t[0]]]) {
+      const k = edges.findIndex((f) => (f[0] === e[1] && f[1] === e[0]) || (f[0] === e[0] && f[1] === e[1]));
+      k >= 0 ? edges.splice(k, 1) : edges.push(e);
+    }
+    tris = tris.filter((t) => !bad.includes(t)).concat(edges.map((e) => [e[0], e[1], i]));
+  }
+  return tris.filter((t) => t.every((i) => i < n));
+}
+function warpMouth(out, now, target) {
+  const idx = [...LM.lips, ...LM.inner], src = [...idx.map((i) => now[i]), ...LM.anchors.map((i) => now[i])];
+  const dst = [...idx.map((i) => target[i]), ...LM.anchors.map((i) => now[i])];
+  const copy = document.createElement("canvas"); copy.width = out.width; copy.height = out.height; copy.getContext("2d").drawImage(out, 0, 0);
+  const g = out.getContext("2d");
+  for (const [a, b, c] of delaunay(dst)) {
+    const [s0, s1, s2] = [src[a], src[b], src[c]], [d0, d1, d2] = [dst[a], dst[b], dst[c]];
+    const den = (s1[0] - s0[0]) * (s2[1] - s0[1]) - (s2[0] - s0[0]) * (s1[1] - s0[1]); if (Math.abs(den) < 1e-6) continue;
+    // affine M with M*s_i = d_i
+    const m11 = ((d1[0] - d0[0]) * (s2[1] - s0[1]) - (d2[0] - d0[0]) * (s1[1] - s0[1])) / den;
+    const m12 = ((d2[0] - d0[0]) * (s1[0] - s0[0]) - (d1[0] - d0[0]) * (s2[0] - s0[0])) / den;
+    const m21 = ((d1[1] - d0[1]) * (s2[1] - s0[1]) - (d2[1] - d0[1]) * (s1[1] - s0[1])) / den;
+    const m22 = ((d2[1] - d0[1]) * (s1[0] - s0[0]) - (d1[1] - d0[1]) * (s2[0] - s0[0])) / den;
+    const tx = d0[0] - m11 * s0[0] - m12 * s0[1], ty = d0[1] - m21 * s0[0] - m22 * s0[1];
+    // grow the clip triangle by half a pixel to avoid hairline seams between triangles
+    const cx = (d0[0] + d1[0] + d2[0]) / 3, cy = (d0[1] + d1[1] + d2[1]) / 3, gr = (p) => { const l = Math.hypot(p[0] - cx, p[1] - cy) || 1; return [p[0] + (p[0] - cx) / l * 0.6, p[1] + (p[1] - cy) / l * 0.6]; };
+    const [e0, e1, e2] = [gr(d0), gr(d1), gr(d2)];
+    g.save(); g.beginPath(); g.moveTo(...e0); g.lineTo(...e1); g.lineTo(...e2); g.closePath(); g.clip();
+    g.setTransform(m11, m21, m12, m22, tx, ty); g.drawImage(copy, 0, 0); g.restore();
+  }
+}
+// Full lip-sync step: measure the swapped mouth, reshape it onto the original, then the original opening on top.
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+// 0 = profile, 1 = facing the camera (nose-to-cheek balance). On turned heads mouth points are guesses.
+const frontalness = (p) => { const a = dist(p[LM.nose], p[5]), b = dist(p[LM.nose], p[21]); return Math.min(a, b) / Math.max(a, b, 1e-6); };
+function mouthAgrees(now, target) {
+  const w = dist(target[LM.mL], target[LM.mR]); if (w < 6) return false;
+  return [...LM.lips, ...LM.inner].every((i) => dist(now[i], target[i]) < 0.6 * w);
+}
+async function followSpeech(out, orig, f) {
+  if (!f.pts || frontalness(f.pts) < 0.35) return;  // turned head: a warp would pull background into the face
+  const now = await refine(out, f);
+  if (now.pts && mouthAgrees(now.pts, f.pts)) warpMouth(out, now.pts, f.pts);
+  restoreLips(out, orig, LM.inner.map((i) => f.pts[i]));
+}
+
+// Zero-lag smoothing: least-squares quadratic over neighbouring frames, evaluated at offset 0 (Savitzky-Golay).
+function fitWeights(offs) {
+  const deg = Math.min(2, offs.length - 1), k = deg + 1;
+  const A = Array.from({ length: k }, (_, r) => Array.from({ length: k }, (_, c) => offs.reduce((a, o) => a + o ** (r + c), 0)));
+  // weights = first row of (V^T V)^-1 V^T  -> solve A x = e0 (Gauss-Jordan)
+  const M = A.map((row, r) => [...row, r === 0 ? 1 : 0]);
+  for (let c = 0; c < k; c++) { let p = c; for (let r = c + 1; r < k; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]]; const d = M[c][c] || 1e-12; for (let j = c; j <= k; j++) M[c][j] /= d;
+    for (let r = 0; r < k; r++) if (r !== c) { const fct = M[r][c]; for (let j = c; j <= k; j++) M[r][j] -= fct * M[c][j]; } }
+  const x = M.map((row) => row[k]);
+  return offs.map((o) => x.reduce((a, xi, j) => a + xi * o ** j, 0));
+}
+
+// Pixel boost: crop at 128*b and swap each of the b*b interleaved 128 px sub-grids, giving real detail at 128*b px.
+async function swapOne(base, out, face, lat, boost, onPart = async () => {}) {
+  const size = 128 * boost, M = similarity(face.kps, T.arc128, size), crop = warp(base, M, size);
+  const px = crop.getContext("2d").getImageData(0, 0, size, size).data, n = 128 * 128;
+  const rgb = new Float32Array(size * size * 3), sess = S.sess.swap, src = new ort.Tensor("float32", lat, [1, 512]);
+  for (let bi = 0; bi < boost; bi++) for (let bj = 0; bj < boost; bj++) {
+    await onPart(bi * boost + bj + 1, boost * boost);
+    const x = new Float32Array(3 * n);
+    for (let y = 0; y < 128; y++) for (let xx = 0; xx < 128; xx++) {
+      const p = ((y * boost + bi) * size + (xx * boost + bj)) * 4, k = y * 128 + xx;
+      x[k] = px[p] / 255; x[n + k] = px[p + 1] / 255; x[2 * n + k] = px[p + 2] / 255;
+    }
+    const res = await sess.run({ target: new ort.Tensor("float32", x, [1, 3, 128, 128]), source: src });
+    const yv = res[sess.outputNames[0]].data;
+    for (let y = 0; y < 128; y++) for (let xx = 0; xx < 128; xx++) {
+      const q = ((y * boost + bi) * size + (xx * boost + bj)) * 3, k = y * 128 + xx;
+      rgb[q] = yv[k] * 255; rgb[q + 1] = yv[n + k] * 255; rgb[q + 2] = yv[2 * n + k] * 255;
+    }
+    Job.advance();
+  }
+  // Fade the top quarter of the crop (mid-forehead) into the original so no horizontal seam shows.
+  const mask = boxMask(size, $("feather").value / 100), fade = 0.15;
+  for (let y = 0; y < size; y++) { let t = Math.min(1, Math.max(0, (y - size * 0.02) / (size * fade))); t = t * t * (3 - 2 * t);
+    if (t < 1) for (let x = 0; x < size; x++) mask[y * size + x] *= t; }
+  pasteBack(out, rgb, size, M, mask, $("blend").value / 100);
+}
+// GPEN restoration on the swapped face (FFHQ alignment, 256 px), blended by strength to keep natural texture.
+async function restoreOne(out, face, strength) {
+  if (strength <= 0) return;
+  const size = 256, M = similarity(face.kps, T.ffhq, size), crop = warp(out, M, size), sess = S.sess.enh;
+  const y = (await sess.run({ [sess.inputNames[0]]: toTensor(crop, [127.5, 127.5, 127.5], 1 / 127.5) }))[sess.outputNames[0]].data;
+  const n = size * size, rgb = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) for (let ch = 0; ch < 3; ch++) rgb[i * 3 + ch] = (Math.max(-1, Math.min(1, y[ch * n + i])) + 1) * 127.5;
+  pasteBack(out, rgb, size, M, boxMask(size, 0.3, 0.05), strength);
+}
+function label(canvas) {
+  const g = canvas.getContext("2d"), t = "AI-generated | FaceFusion Live", fs = Math.max(11, Math.round(Math.min(canvas.width, canvas.height) / 55));
+  g.font = `600 ${fs}px Inter, sans-serif`; const w = g.measureText(t).width, p = Math.round(fs * 0.5);
+  g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(canvas.width - w - 3 * p, canvas.height - fs - 3 * p, w + 2 * p, fs + 2 * p);
+  g.fillStyle = "#fff"; g.textBaseline = "top"; g.fillText(t, canvas.width - w - 2 * p, canvas.height - fs - 2 * p);
+}
+
+// ---- views ----
+function drawFaces(wrap, canvas, faces, selected, onPick) {
+  const v = document.createElement("canvas"); v.width = canvas.width; v.height = canvas.height;
+  const g = v.getContext("2d"); g.drawImage(canvas, 0, 0); const lw = Math.max(2, canvas.width / 400);
+  faces.forEach((f, i) => { const on = selected.has(i); g.lineWidth = on ? lw * 1.8 : lw; g.strokeStyle = on ? "#22c55e" : "#60a5fa";
+    g.strokeRect(f.box[0], f.box[1], f.box[2] - f.box[0], f.box[3] - f.box[1]); });
+  v.addEventListener("click", (e) => { const r = v.getBoundingClientRect(), x = (e.clientX - r.left) * v.width / r.width, y = (e.clientY - r.top) * v.height / r.height;
+    const i = faces.findIndex((f) => x >= f.box[0] && x <= f.box[2] && y >= f.box[1] && y <= f.box[3]); if (i >= 0) onPick(i); });
+  wrap.replaceChildren(v);
+}
+const modelsReady = () => MODELS.every((m) => S.sess[m.key]);
+async function analyzeSource() {
+  if (!S.src) return;
+  if (!modelsReady()) {  // detection runs automatically once the models have loaded
+    if (Job.active && !S.loadingModels) Job.finish(S.modelError ? "Photo opened, but the models failed to load. Reload the page." : "Photo opened. Faces are detected as soon as the models finish loading.", S.modelError ? "err" : "");
+    return;
+  }
+  if (!Job.active) Job.start("Preparing source photo", 3);
+  try {
+    await Job.step("checking content"); await nsfwCheck(S.src, "source photo"); Job.advance();
+    await Job.step("finding faces"); S.srcFaces = await detect(S.src); S.srcIdx = 0; Job.advance();
+    if (!S.srcFaces.length) Job.finish("No face found in the source photo. Use a sharp, front-facing, well-lit photo.", "err");
+    else { await Job.step("reading identity"); S.srcFaces[0].emb = await embed(S.src, S.srcFaces[0].kps); Job.advance();
+      Job.finish(`Source ready: ${S.srcFaces.length} face(s), using the largest. Click another to change.`); }
+  } catch (e) { S.srcFaces = []; Job.finish(e.message, "err"); }
+  showSource(); refresh();
+}
+function showSource() { if (S.src) drawFaces($("srcwrap"), S.src, S.srcFaces, new Set([S.srcIdx]), async (i) => {
+  S.srcIdx = i; if (!S.srcFaces[i].emb) S.srcFaces[i].emb = await embed(S.src, S.srcFaces[i].kps); showSource(); }); }
+async function analyzeTarget() {
+  if (!S.tgt) return;
+  if (!modelsReady()) {  // detection runs automatically once the models have loaded
+    if (Job.active && !S.loadingModels) Job.finish(S.modelError ? "Photo opened, but the models failed to load. Reload the page." : "Photo opened. Faces are detected as soon as the models finish loading.", S.modelError ? "err" : "");
+    return;
+  }
+  if (!Job.active) Job.start("Preparing target photo", 3);
+  try {
+    await Job.step("checking content"); await nsfwCheck(S.tgt, "target photo"); Job.advance();
+    await Job.step("finding faces"); S.tgtFaces = await detect(S.tgt); S.sel = new Set(S.tgtFaces.length ? [0] : []); Job.advance();
+    Job.finish(S.tgtFaces.length ? `Target ready: ${S.tgtFaces.length} face(s), the largest is selected. Click faces to change.` : "No face found in the target photo.", S.tgtFaces.length ? "ok" : "err");
+  } catch (e) { S.tgtFaces = []; Job.finish(e.message, "err"); }
+  showTarget(); refresh();
+}
+function showTarget() { if (S.tgt) drawFaces($("tgtwrap"), S.tgt, S.tgtFaces, S.sel, (i) => { S.sel.has(i) ? S.sel.delete(i) : S.sel.add(i); showTarget(); refresh(); }); }
+
+async function openPhoto(file, title) {
+  if (S.loadingModels) { try { return await fileToCanvas(file); } catch (e) { status(`Could not open ${file.name}: it is not a supported image.`, "err"); return null; } }
+  Job.start(title, 4); await Job.step("opening photo");
+  try { const c = await fileToCanvas(file); Job.advance(); return c; }
+  catch (e) { Job.finish(`Could not open ${file.name}: it is not a supported image.`, "err"); return null; }
+}
+$("srcfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f || S.busy) return; $("srcname").textContent = f.name;
+  S.busy = true; refresh(); const c = await openPhoto(f, "Preparing source photo");
+  if (c) { S.src = c; S.srcFaces = []; showSource(); if (!S.loadingModels) Job.total = 4; await analyzeSource(); } S.busy = false; refresh(); });
+$("tgtfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f || S.busy) return; $("tgtname").textContent = f.name;
+  S.busy = true; refresh(); const c = await openPhoto(f, "Preparing target photo");
+  if (c) { S.tgt = c; S.tgtFaces = []; S.result = null; showTarget(); showResult(); if (!S.loadingModels) Job.total = 3; await analyzeTarget(); } S.busy = false; refresh(); });
+
+function refresh() {
+  if (typeof refreshLive === "function" && $("livestart")) refreshLive();
+  if (typeof vidRefresh === "function" && $("vidstart")) vidRefresh();
+  $("swap").disabled = S.busy || !(modelsReady() && S.srcFaces.length && S.tgtFaces.length && S.sel.size && $("consent").checked);
+  $("save").disabled = S.busy || !S.result;
+}
+["consent"].forEach((id) => $(id).addEventListener("change", refresh));
+for (const id of ["blend", "feather", "enhance"]) $(id).addEventListener("input", () => { $(id + "v").textContent = ($(id).value / 100).toFixed(2); });
+
+$("swap").addEventListener("click", async () => {
+  S.busy = true; refresh();
+  const src = S.srcFaces[S.srcIdx], [boost, restore] = $("quality").value.split(":").map(Number);
+  const nf = S.sel.size, RESTORE = 0.25, perFace = boost * boost + (restore ? RESTORE : 0);  // measured: restoration ~ 1/4 of a swap pass
+  if (!S.result) { const v = document.createElement("canvas"); v.width = S.tgt.width; v.height = S.tgt.height; v.getContext("2d").drawImage(S.tgt, 0, 0); setPlate(v); }
+  Job.start("Swapping", (src.emb ? 0 : 1) + nf * perFace, { overlay: true });
+  try {
+    if (!src.emb) { await Job.step("reading source identity"); src.emb = await embed(S.src, src.kps); Job.advance(); }
+    const lat = latent(src.emb), out = document.createElement("canvas"); out.width = S.tgt.width; out.height = S.tgt.height;
+    out.getContext("2d").drawImage(S.tgt, 0, 0);
+    let k = 0;
+    for (const i of S.sel) {
+      k++;
+      const tf = await refine(S.tgt, S.tgtFaces[i]);  // precise alignment from measured landmarks
+      await swapOne(S.tgt, out, tf, lat, boost, (p, n) => Job.step(`face ${k} of ${nf}: swapping${n > 1 ? ` part ${p}/${n}` : ""}`));
+      if (restore) { await Job.step(`face ${k} of ${nf}: restoring detail`); await restoreOne(out, tf, $("enhance").value / 100); Job.advance(RESTORE); }
+    }
+    S.result = out; showResult();
+    Job.finish("Done. Drag the image to compare before and after, then Save PNG.");
+  } catch (e) { Job.finish(`Swap failed: ${e.message || e}`, "err"); console.error(e); }
+  S.busy = false; refresh();
+});
+
+function setPlate(...nodes) { const p = $("plate"), busy = $("busy"); p.replaceChildren(...nodes, busy); }
+function showResult() {
+  const plate = $("plate");
+  if (!S.result) { setPlate(Object.assign(document.createElement("div"), { className: "empty", textContent: "Your result appears here." })); return; }
+  const v = document.createElement("canvas"); v.id = "resultCanvas"; v.width = S.result.width; v.height = S.result.height;
+  const draw = () => { const g = v.getContext("2d"), sx = Math.round(v.width * S.split); g.drawImage(S.result, 0, 0);
+    g.drawImage(S.tgt, 0, 0, sx, v.height, 0, 0, sx, v.height); g.fillStyle = "#fff"; g.fillRect(sx - 1, 0, 2, v.height); };
+  const move = (e) => { const r = v.getBoundingClientRect(); S.split = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); draw(); };
+  v.addEventListener("pointerdown", (e) => { v.setPointerCapture(e.pointerId); move(e); });
+  v.addEventListener("pointermove", (e) => { if (e.buttons) move(e); });
+  draw(); const b = Object.assign(document.createElement("span"), { className: "tag", textContent: "BEFORE" }); b.style.left = "8px";
+  const a = Object.assign(document.createElement("span"), { className: "tag", textContent: "AFTER" }); a.style.right = "8px";
+  setPlate(v, b, a);
+}
+
+$("save").addEventListener("click", async () => {
+  const c = document.createElement("canvas"); c.width = S.result.width; c.height = S.result.height;
+  c.getContext("2d").drawImage(S.result, 0, 0); label(c);
+  const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+  const dl = window.claude ? await window.claude.use("downloads").catch(() => null) : null;
+  if (dl) {
+    try { await dl.save({ filename: "faceswap-ai-generated.png", data: blob }); status("Saved.", "ok"); }
+    catch (e) { status("Save was cancelled.", ""); }
+  } else {
+    const url = URL.createObjectURL(blob); const img = new Image(); img.src = url; img.style.maxWidth = "100%";
+    setPlate(img); status("Saving files isn't available here. Right-click or long-press the labelled image to save it.");
+  }
+});
+
+// ---- tabs ----
+function setMode(mode) {
+  const live = mode === "live";
+  for (const m of ["photo", "video", "live"]) {
+    $("tab-" + m).setAttribute("aria-selected", String(m === mode));
+    document.querySelectorAll(`.${m}-only`).forEach((e) => (e.hidden = m !== mode));
+  }
+  if (!live && L.running) stopLive();
+  try { localStorage.setItem("ffl-mode", mode); } catch (e) {}
+  refreshLive();
+}
+$("tab-photo").addEventListener("click", () => setMode("photo"));
+$("tab-live").addEventListener("click", () => setMode("live"));
+$("tab-video").addEventListener("click", () => setMode("video"));
+
+// ---- live webcam ----
+const L = { running: false, stream: null, video: null, frames: 0, t0: 0, fps: 0, lat: 0, last: [], bypass: false, lastCheck: 0 };
+function refreshLive() {
+  $("livestart").disabled = !L.running && !(modelsReady() && S.srcFaces.length && $("liveconsent").checked);
+  $("livestart").textContent = L.running ? "Stop camera" : "Start camera";
+  $("livestart").className = "btn " + (L.running ? "" : "primary");
+  $("livebypass").disabled = !L.running;
+  if (!L.running && !$("livemsg").classList.contains("err")) $("livemsg").textContent = !modelsReady() ? "Waiting for the models to finish loading\u2026"
+    : !S.srcFaces.length ? "Choose a source face photo first (left)." : !$("liveconsent").checked ? "Tick the consent box to enable the camera." : "";
+}
+$("liveconsent").addEventListener("change", () => { $("livemsg").className = "status"; refreshLive(); });
+$("livebypass").addEventListener("click", () => { L.bypass = !L.bypass; $("livebypass").setAttribute("aria-pressed", String(L.bypass));
+  $("livebypass").textContent = L.bypass ? "Show swap" : "Show original"; });
+$("livestart").addEventListener("click", () => (L.running ? stopLive() : startLive()));
+$("proc").value = cpuOnly() ? "cpu" : "auto";
+$("proc").addEventListener("change", () => {
+  try { localStorage.setItem("ffl-cpu", $("proc").value === "cpu" ? "1" : "0"); } catch (e) {}
+  $("livemsg").className = "status"; $("livemsg").textContent = "Processor setting saved. Reload the page to apply it.";
+});
+
+function cameraError(e) {
+  const inFrame = window.top !== window.self;
+  if (inFrame && (!navigator.mediaDevices?.getUserMedia || (e && (e.name === "NotAllowedError" || e.name === "SecurityError"))))
+    return "The camera is blocked here: claude.ai doesn't let artifacts use the camera. Download the Windows app below for live webcam swapping, or open this page from its own web address.";
+  if (e && (e.name === "NotAllowedError" || e.name === "SecurityError"))
+    return inFrame ? "The camera is blocked here: claude.ai doesn't let artifacts use the camera. Download the Windows app below for live webcam swapping, or open this page from its own web address."
+                   : "Camera permission was denied. Allow camera access for this site in the browser's address bar, then press Start camera again.";
+  if (e && e.name === "NotFoundError") return "No camera was found. Connect a webcam and press Start camera again.";
+  if (e && e.name === "NotReadableError") return "The camera is in use by another app (Zoom, Teams, OBS…). Close it and try again.";
+  if (!navigator.mediaDevices?.getUserMedia) return "This browser can't access a camera from this page.";
+  return `Could not start the camera: ${(e && e.message) || e}`;
+}
+async function listCameras() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput"), sel = $("camsel"), cur = sel.value;
+    sel.replaceChildren(...devs.map((d, i) => Object.assign(document.createElement("option"), { value: d.deviceId, textContent: d.label || `Camera ${i + 1}` })));
+    if (cur && devs.some((d) => d.deviceId === cur)) sel.value = cur;
+  } catch (e) { /* keep default entry */ }
+}
+async function startLive() {
+  $("livemsg").textContent = "Starting the camera\u2026";
+  const [w, h] = $("camres").value.split("x").map(Number), dev = $("camsel").value;
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("no getUserMedia");
+    L.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: w }, height: { ideal: h }, ...(dev ? { deviceId: { exact: dev } } : {}) } });
+  } catch (e) { $("livemsg").textContent = cameraError(e); $("livemsg").className = "status err"; return; }
+  listCameras();
+  L.video = Object.assign(document.createElement("video"), { muted: true, playsInline: true, srcObject: L.stream });
+  await L.video.play();
+  L.stream.getVideoTracks()[0].addEventListener("ended", () => { stopLive(); $("livemsg").textContent = "The camera was disconnected."; $("livemsg").className = "status err"; });
+  Object.assign(L, { running: true, frames: 0, t0: performance.now(), fps: 0, last: [], lastCheck: 0 });
+  $("liveempty").hidden = true; $("livecanvas").hidden = false; $("livemsg").className = "status";
+  $("livemsg").textContent = `Running on ${Backend.label}. Press Stop camera to turn the camera off.`;
+  refreshLive(); liveLoop();
+}
+function stopLive() {
+  L.running = false;
+  if (L.stream) L.stream.getTracks().forEach((t) => t.stop());
+  L.stream = null; L.video = null;
+  $("livecanvas").hidden = true; $("liveempty").hidden = false; $("liveempty").textContent = "Camera off.";
+  $("livestats").textContent = ""; $("livemsg").textContent = ""; $("livemsg").className = "status"; refreshLive();
+}
+// Smooth landmarks between frames (exponential, stronger when the face is still) to stop jitter.
+function smoothFaces(faces) {
+  const out = faces.map((f) => {
+    const prev = L.last.find((p) => iou(p.box, f.box) > 0.3);
+    if (!prev) return f;
+    const size = f.box[2] - f.box[0], move = Math.hypot(f.kps[2][0] - prev.kps[2][0], f.kps[2][1] - prev.kps[2][1]) / size;
+    const a = Math.min(1, 0.5 + move * 8);  // measured landmarks jitter little: follow closely, faster on motion
+    return { ...f, kps: f.kps.map((k, i) => [prev.kps[i][0] + (k[0] - prev.kps[i][0]) * a, prev.kps[i][1] + (k[1] - prev.kps[i][1]) * a]) };
+  });
+  L.last = out; return out;
+}
+async function liveLoop() {
+  const grab = document.createElement("canvas"), view = $("livecanvas");
+  let src = null, lat = null;
+  while (L.running && L.video) {
+    if (S.srcFaces[S.srcIdx] && S.srcFaces[S.srcIdx] !== src) {  // source changed while live
+      src = S.srcFaces[S.srcIdx]; if (!src.emb) src.emb = await embed(S.src, src.kps); lat = latent(src.emb);
+    }
+    const v = L.video;
+    if (v.readyState < 2 || !v.videoWidth) { await new Promise((r) => setTimeout(r, 30)); continue; }
+    const t0 = performance.now();
+    if (grab.width !== v.videoWidth) { grab.width = view.width = v.videoWidth; grab.height = view.height = v.videoHeight; }
+    grab.getContext("2d").drawImage(v, 0, 0);
+    try {
+      if (t0 - L.lastCheck > 10000) { L.lastCheck = t0; await nsfwCheck(grab, "camera image"); }
+      const out = document.createElement("canvas"); out.width = grab.width; out.height = grab.height; out.getContext("2d").drawImage(grab, 0, 0);
+      if (!L.bypass) {
+        let det = await detect(grab, 320);
+        if (!$("liveall").checked) det = det.slice(0, 1);
+        const measured = []; for (const d of det) measured.push(await refine(grab, d));  // precise eyes/nose/lips
+        const faces = smoothFaces(measured);  // live: real-time smoothing (no look-ahead possible)
+        for (let k = 0; k < faces.length; k++) {
+          const f = faces[k];
+          await swapOne(grab, out, f, lat, 1);
+          if ($("liverestore").checked) await restoreOne(out, f, 0.6);
+          if ($("livelips").checked && measured[k].pts) await followSpeech(out, grab, measured[k]);  // current-frame mouth: no lag
+        }
+        L.faces = faces.length;
+      }
+      label(out);
+      if (!L.running) break;
+      view.getContext("2d").drawImage(out, 0, 0);
+    } catch (e) {
+      stopLive(); $("livemsg").textContent = e.message || String(e); $("livemsg").className = "status err"; break;
+    }
+    const now = performance.now(); L.frames++; L.lat = now - t0;
+    if (now - L.t0 > 1000) { L.fps = L.frames * 1000 / (now - L.t0); L.frames = 0; L.t0 = now; }
+    $("livestats").innerHTML = `<b>${L.fps.toFixed(1)}</b> FPS &middot; <b>${Math.round(L.lat)}</b> ms per frame &middot; ${L.bypass ? "original" : `${L.faces ?? 0} face(s)`} &middot; ${grab.width}&times;${grab.height} &middot; ${Backend.label}`;
+    await frame();
+  }
+}
+// ---- video swap ----
+const V = { file: null, url: null, el: null, w: 0, h: 0, fps: 30, dur: 0, faces: [], sel: new Set(), refs: [], busy: false, cancel: false, result: null, hasAudio: false };
+const vidEl = () => V.el;
+function waitEvent(el, name, ms = 15000) {
+  return new Promise((res, rej) => { const t = setTimeout(() => { el.removeEventListener(name, on); rej(new Error(`video ${name} timed out`)); }, ms);
+    function on() { clearTimeout(t); el.removeEventListener(name, on); res(); } el.addEventListener(name, on); });
+}
+async function seekTo(t) {
+  const v = vidEl(); if (Math.abs(v.currentTime - t) < 1e-4 && v.readyState >= 2) return;
+  const p = waitEvent(v, "seeked"); v.currentTime = t; await p;
+}
+// Exact frame rate and frame count from an MP4/MOV container (video track's mdhd timescale + stts table).
+async function mp4VideoTiming(file) {
+  const b = new DataView(await file.arrayBuffer());
+  const type = (o) => String.fromCharCode(b.getUint8(o + 4), b.getUint8(o + 5), b.getUint8(o + 6), b.getUint8(o + 7));
+  function* boxes(start, end) {
+    for (let o = start; o + 8 <= end;) {
+      let size = b.getUint32(o), hdr = 8;
+      if (size === 1) { size = Number(b.getBigUint64(o + 8)); hdr = 16; } else if (size === 0) size = end - o;
+      if (size < hdr) return;
+      yield { o, size, hdr, t: type(o) }; o += size;
+    }
+  }
+  const find = (start, end, t) => { for (const x of boxes(start, end)) if (x.t === t) return x; return null; };
+  const moov = find(0, b.byteLength, "moov"); if (!moov) return null;
+  for (const trak of boxes(moov.o + moov.hdr, moov.o + moov.size)) {
+    if (trak.t !== "trak") continue;
+    const mdia = find(trak.o + 8, trak.o + trak.size, "mdia"); if (!mdia) continue;
+    const hdlr = find(mdia.o + 8, mdia.o + mdia.size, "hdlr"); if (!hdlr || type(hdlr.o + 8 + 4) !== "vide") continue;
+    const mdhd = find(mdia.o + 8, mdia.o + mdia.size, "mdhd"); const v = b.getUint8(mdhd.o + 8);
+    const timescale = b.getUint32(mdhd.o + 8 + (v === 1 ? 20 : 12));
+    const minf = find(mdia.o + 8, mdia.o + mdia.size, "minf"), stbl = minf && find(minf.o + 8, minf.o + minf.size, "stbl");
+    const stts = stbl && find(stbl.o + 8, stbl.o + stbl.size, "stts"); if (!stts) return null;
+    const n = b.getUint32(stts.o + 12); let frames = 0, best = 0, bestDelta = 0;
+    for (let k = 0; k < n; k++) { const c = b.getUint32(stts.o + 16 + k * 8), d = b.getUint32(stts.o + 20 + k * 8); frames += c; if (c > best) { best = c; bestDelta = d; } }
+    if (!bestDelta) return null;
+    return { fps: Math.round(timescale / bestDelta * 1000) / 1000, frames };
+  }
+  return null;
+}
+// Frame rate fallback (WebM etc.): watch presented frames for a moment (requestVideoFrameCallback), fall back to 30.
+async function measureFps(v) {
+  if (!("requestVideoFrameCallback" in HTMLVideoElement.prototype)) return 30;
+  const times = [];
+  await new Promise((res) => {
+    const stop = setTimeout(res, 1500);
+    const cb = (_, meta) => { times.push(meta.mediaTime); if (times.length < 14) v.requestVideoFrameCallback(cb); else { clearTimeout(stop); res(); } };
+    v.requestVideoFrameCallback(cb); v.playbackRate = 1; v.play().catch(() => res());
+  });
+  v.pause();
+  const d = times.slice(1).map((t, i) => t - times[i]).filter((x) => x > 0.001).sort((a, b) => a - b);
+  if (!d.length) return 30;
+  const fps = 1 / d[Math.floor(d.length / 2)];
+  const common = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60];
+  return common.reduce((best, c) => Math.abs(c - fps) < Math.abs(best - fps) ? c : best, common[0]);
+}
+function vidRefresh() {
+  const ready = modelsReady() && S.srcFaces.length && V.el && $("vidconsent").checked && !V.busy;
+  $("vidstart").disabled = !ready; $("vidcancel").disabled = !V.busy; $("vidsave").disabled = V.busy || !V.result;
+  if (V.el && V.dur) {
+    const secs = Number($("vidlen").value) ? Math.min(Number($("vidlen").value), V.dur) : V.dur, step = Number($("vidstep").value);
+    const n = Math.ceil(secs * V.fps / step), gpu = Backend.onGpu.has("swap");
+    $("videstimate").textContent = `${n} frames to process (${secs.toFixed(1)} s at ${+(V.fps / step).toFixed(3)} fps). ` + (gpu
+      ? "Running on your graphics card." : "Running on the CPU here, a few seconds per frame; the bar shows the time left once it starts. The Windows app is much faster for long videos.");
+  }
+  if (!V.busy && !$("vidmsg").classList.contains("err")) $("vidmsg").textContent = !modelsReady() ? "Waiting for the models to finish loading…"
+    : !S.srcFaces.length ? "Choose a source face photo first (left)." : !V.el ? "Choose a video." : !$("vidconsent").checked ? "Tick the consent box to enable processing." : "";
+}
+["vidconsent", "vidlen", "vidquality", "vidstep"].forEach((id) => $(id).addEventListener("change", () => { $("vidmsg").className = "status"; vidRefresh(); }));
+
+function drawVidPreview(canvas, faces) {
+  const c = $("vidcanvas"); c.width = canvas.width; c.height = canvas.height;
+  const g = c.getContext("2d"); g.drawImage(canvas, 0, 0); const lw = Math.max(2, c.width / 300);
+  faces.forEach((f, i) => { const on = V.sel.has(i); g.lineWidth = on ? lw * 1.8 : lw; g.strokeStyle = on ? "#22c55e" : "#60a5fa";
+    g.strokeRect(f.box[0], f.box[1], f.box[2] - f.box[0], f.box[3] - f.box[1]); });
+  $("vidplayer").hidden = true; c.hidden = false; $("videmmpty").hidden = true;
+}
+$("vidcanvas").addEventListener("click", (e) => {
+  if (V.busy || !V.faces.length || !V.preview) return;
+  const c = $("vidcanvas"), r = c.getBoundingClientRect();
+  // object-fit: contain -> map the click into canvas pixels
+  const s = Math.min(r.width / c.width, r.height / c.height), ox = (r.width - c.width * s) / 2, oy = (r.height - c.height * s) / 2;
+  const x = (e.clientX - r.left - ox) / s, y = (e.clientY - r.top - oy) / s;
+  const i = V.faces.findIndex((f) => x >= f.box[0] && x <= f.box[2] && y >= f.box[1] && y <= f.box[3]);
+  if (i < 0) return;
+  V.sel.has(i) ? V.sel.delete(i) : V.sel.add(i);
+  drawVidPreview(V.preview, V.faces);
+  $("vidinfo").textContent = V.sel.size ? `Replacing ${V.sel.size} chosen ${V.sel.size > 1 ? "people" : "person"} throughout the video; others stay untouched.` : "No face chosen: the largest face in each frame is replaced. Click faces to choose.";
+});
+
+$("vidfile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f || V.busy) return;
+  $("vidname").textContent = f.name; $("vidmsg").className = "status"; $("vidmsg").textContent = "Opening video…";
+  if (V.url) URL.revokeObjectURL(V.url);
+  Object.assign(V, { file: f, url: URL.createObjectURL(f), faces: [], sel: new Set(), refs: [], result: null });
+  const v = Object.assign(document.createElement("video"), { muted: true, playsInline: true, preload: "auto", src: V.url });
+  try {
+    await waitEvent(v, "loadeddata", 20000);
+    V.el = v; V.w = v.videoWidth & ~1; V.h = v.videoHeight & ~1; V.dur = v.duration;
+    const timing = await mp4VideoTiming(f).catch(() => null);
+    V.fps = timing?.fps || await measureFps(v);
+    await seekTo(Math.min(0.5, V.dur / 2));
+    const c = document.createElement("canvas"); c.width = V.w; c.height = V.h; c.getContext("2d").drawImage(v, 0, 0, V.w, V.h);
+    V.preview = c;
+    if (modelsReady()) { await nsfwCheck(c, "video"); V.faces = await detect(c, 640); }
+    drawVidPreview(c, V.faces);
+    $("vidinfo").textContent = `${V.w}×${V.h}, ${V.fps} fps, ${V.dur.toFixed(1)} s. ` + (V.faces.length
+      ? `${V.faces.length} face(s) in this frame. Click to choose who to replace; with none chosen, the largest face is replaced.` : "No face in this frame; the largest face in each frame will be replaced.");
+    $("vidmsg").textContent = "";
+  } catch (err) {
+    V.el = null; $("vidmsg").textContent = `Could not open this video: ${err.message || err}. Try an MP4 (H.264) file.`; $("vidmsg").className = "status err";
+  }
+  vidRefresh();
+});
+
+async function pickEncoder(w, h, fps) {
+  const bitrate = Math.round(Math.min(20e6, Math.max(2e6, w * h * fps * 0.12)));
+  for (const [codec, mux] of [["avc1.640033", "avc"], ["avc1.640028", "avc"], ["avc1.4d0028", "avc"], ["avc1.42001f", "avc"], ["vp09.00.40.08", "vp9"]]) {
+    const cfg = { codec, width: w, height: h, bitrate, framerate: fps, latencyMode: "quality", ...(mux === "avc" ? { avc: { format: "avc" } } : {}) };
+    try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return { cfg, mux }; } catch (e) {}
+  }
+  throw new Error("This browser can't encode video (no H.264/VP9 encoder).");
+}
+async function decodeAudio(file, start, secs) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+    const buf = await ctx.decodeAudioData(await file.arrayBuffer()); ctx.close();
+    const a = Math.floor(start * buf.sampleRate), b = Math.min(buf.length, Math.floor((start + secs) * buf.sampleRate));
+    if (b <= a) return null;
+    return { sampleRate: buf.sampleRate, channels: Math.min(2, buf.numberOfChannels),
+      data: [...Array(Math.min(2, buf.numberOfChannels)).keys()].map((ch) => buf.getChannelData(ch).subarray(a, b)) };
+  } catch (e) { return null; }  // no audio track, or the browser can't decode it
+}
+async function pickAudio(sr, ch) {
+  for (const [codec, mux] of [["mp4a.40.2", "aac"], ["opus", "opus"]]) {
+    const cfg = { codec, sampleRate: sr, numberOfChannels: ch, bitrate: 160000 };
+    try { if ((await AudioEncoder.isConfigSupported(cfg)).supported) return { cfg, mux }; } catch (e) {}
+  }
+  return null;
+}
+
+$("vidcancel").addEventListener("click", () => { V.cancel = true; $("vidmsg").textContent = "Stopping…"; });
+$("vidstart").addEventListener("click", processVideo);
+async function processVideo() {
+  if (!window.VideoEncoder || !window.Mp4Muxer) { $("vidmsg").textContent = "This browser can't create videos here (needs Chrome, Edge or a recent Firefox/Safari)."; $("vidmsg").className = "status err"; return; }
+  V.busy = true; V.cancel = false; V.result = null; vidRefresh(); refresh();
+  const [boost, restore] = $("vidquality").value.split(":").map(Number);
+  const secs = Number($("vidlen").value) ? Math.min(Number($("vidlen").value), V.dur) : V.dur;
+  const step = Number($("vidstep").value), fps = V.fps / step;  // every 2nd frame: half the work, half the frame rate
+  const n = Math.max(1, Math.ceil(secs * V.fps / step)), W = V.w, H = V.h;
+  const grab = document.createElement("canvas"); grab.width = W; grab.height = H; const gctx = grab.getContext("2d", { willReadFrequently: true });
+  let encoder, aenc;
+  try {
+    // identity references for the chosen people
+    const src = S.srcFaces[S.srcIdx]; if (!src.emb) src.emb = await embed(S.src, src.kps); const lat = latent(src.emb);
+    V.refs = [];
+    for (const i of V.sel) V.refs.push(await embed(V.preview, V.faces[i].kps));
+    const { cfg, mux } = await pickEncoder(W, H, fps);
+    const audio = await decodeAudio(V.file, 0, secs), ainfo = audio ? await pickAudio(audio.sampleRate, audio.channels) : null;
+    const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), fastStart: "in-memory", firstTimestampBehavior: "offset",
+      video: { codec: mux, width: W, height: H, frameRate: Math.max(1, Math.round(fps)) },  // header only; timestamps stay exact
+      ...(ainfo ? { audio: { codec: ainfo.mux, numberOfChannels: audio.channels, sampleRate: audio.sampleRate } } : {}) });
+    let encErr = null;
+    encoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => (encErr = e) });
+    encoder.configure(cfg);
+    const per = 1 + boost * boost + (restore ? 0.25 : 0);  // detection+tracking, swap passes, restoration
+    Job.start("Processing video", n * per);
+    // Look-ahead window: frames are decoded and measured R frames ahead, so landmarks are smoothed with past
+    // AND future frames (zero lag, no jitter). Lips stay per-frame so speech is followed exactly.
+    const R = 2, win = [], tracks = new Map(); let nextId = 0, prev = [];
+    const keepLips = $("vidlips").checked;
+    for (let i = 0; i < n + R; i++) {
+      if (V.cancel) throw new Error("cancelled");
+      if (encErr) throw encErr;
+      if (i < n) {
+        await Job.step(`frame ${i + 1} of ${n}: finding faces`);
+        await seekTo(Math.min(V.dur - 0.001, (i * step + 0.5) / V.fps));
+        const cv = document.createElement("canvas"); cv.width = W; cv.height = H; cv.getContext("2d").drawImage(V.el, 0, 0, W, H);
+        if (i % Math.max(1, Math.round(fps * 2)) === 0) await nsfwCheck(cv, "video");
+        const faces = [];
+        for (const d of await detect(cv, 480)) {
+          const f = await refine(cv, d);
+          const p = prev.find((q) => !faces.some((x) => x.id === q.id) && iou(q.box, f.box) > 0.3);
+          f.id = p ? p.id : nextId++; faces.push(f);
+        }
+        prev = faces; win.push({ i, cv, faces });
+        Job.advance(1);
+      }
+      const c = i - R; if (c < 0) continue;
+      const item = win.find((w) => w.i === c);
+      // zero-lag smoothing of each face's alignment points over frames c-R..c+R
+      const faces = item.faces.map((f) => {
+        const offs = [], pts = [];
+        for (const w of win) { if (Math.abs(w.i - c) > R) continue; const g = w.faces.find((x) => x.id === f.id); if (g) { offs.push(w.i - c); pts.push(g.kps); } }
+        if (offs.length < 3) return f;
+        const wts = fitWeights(offs);
+        return { ...f, kps: f.kps.map((_, j) => [0, 1].map((ax) => pts.reduce((a, q, k) => a + wts[k] * q[j][ax], 0))) };
+      });
+      let targets;
+      if (V.refs.length) {
+        targets = [];
+        for (const f of faces) {
+          let t = tracks.get(f.id); if (!t) { t = { ref: undefined, lastEmbed: -99 }; tracks.set(f.id, t); }
+          if (t.ref === undefined || c - t.lastEmbed >= 15) {  // identity check for new tracks and every 15 frames
+            const e = await embed(item.cv, f.kps); let best = -1, bi = -1;
+            V.refs.forEach((r, k) => { const sm = r.reduce((a, v, j) => a + v * e[j], 0); if (sm > best) { best = sm; bi = k; } });
+            t.ref = best > 0.35 ? bi : null; t.lastEmbed = c;
+          }
+          if (t.ref !== null) targets.push(f);
+        }
+      } else targets = faces.slice(0, 1);
+      const out = document.createElement("canvas"); out.width = W; out.height = H; out.getContext("2d").drawImage(item.cv, 0, 0);
+      for (const f of targets) {
+        await swapOne(item.cv, out, f, lat, boost, (p, m) => Job.step(`frame ${c + 1} of ${n}: swapping${m > 1 ? ` part ${p}/${m}` : ""}`));
+        if (restore) { await Job.step(`frame ${c + 1} of ${n}: restoring detail`); await restoreOne(out, f, 0.7); }
+        if (keepLips && f.pts) await followSpeech(out, item.cv, f);
+      }
+      if (!targets.length) Job.advance(boost * boost);
+      if (restore) Job.advance(0.25);
+      label(out);
+      const frame = new VideoFrame(out, { timestamp: Math.round(c * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      encoder.encode(frame, { keyFrame: c % Math.max(1, Math.round(fps * 2)) === 0 }); frame.close();
+      while (encoder.encodeQueueSize > 4) await new Promise((r) => setTimeout(r, 5));
+      if (c % 3 === 0 || c === n - 1) drawVidPreview(out, []);
+      while (win.length && win[0].i < c - R + 1) win.shift();  // keep R past frames
+    }
+    await encoder.flush();
+    if (ainfo) {
+      let aerr = null;
+      aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => (aerr = e) });
+      aenc.configure(ainfo.cfg);
+      const len = audio.data[0].length, step = 4096;
+      for (let o = 0; o < len; o += step) {
+        const m = Math.min(step, len - o), planar = new Float32Array(m * audio.channels);
+        for (let c = 0; c < audio.channels; c++) planar.set(audio.data[c].subarray(o, o + m), c * m);
+        const ad = new AudioData({ format: "f32-planar", sampleRate: audio.sampleRate, numberOfFrames: m, numberOfChannels: audio.channels,
+          timestamp: Math.round(o * 1e6 / audio.sampleRate), data: planar });
+        aenc.encode(ad); ad.close();
+      }
+      await aenc.flush(); if (aerr) throw aerr;
+    }
+    muxer.finalize();
+    V.result = new Blob([muxer.target.buffer], { type: "video/mp4" });
+    const pl = $("vidplayer"); if (pl.src) URL.revokeObjectURL(pl.src);
+    pl.src = URL.createObjectURL(V.result); pl.hidden = false; $("vidcanvas").hidden = true;
+    Job.finish(`Video ready: ${n} frames, ${(V.result.size / 1048576).toFixed(1)} MB, ${ainfo ? "with the original sound" : "no sound track"}. Press Save MP4.`);
+  } catch (err) {
+    try { encoder && encoder.state !== "closed" && encoder.close(); } catch (e) {}
+    try { aenc && aenc.state !== "closed" && aenc.close(); } catch (e) {}
+    const cancelled = V.cancel || String(err && err.message) === "cancelled";
+    Job.finish(cancelled ? "Video processing cancelled." : `Video processing failed: ${(err && err.message) || err}`, cancelled ? "" : "err");
+    if (!cancelled) { $("vidmsg").textContent = `${(err && err.message) || err}`; $("vidmsg").className = "status err"; }
+    console.error(err);
+  }
+  V.busy = false; V.cancel = false; vidRefresh(); refresh();
+}
+// Track faces across frames by overlap and smooth their landmarks (less jitter, steady identity checks).
+function smoothVidFaces(faces, tracks) {
+  const used = new Set(), out = [];
+  for (const f of faces) {
+    let t = tracks.find((t) => !used.has(t) && iou(t.box, f.box) > 0.3);
+    let g = f;
+    if (t) {
+      const size = f.box[2] - f.box[0], move = Math.hypot(f.kps[2][0] - t.kps[2][0], f.kps[2][1] - t.kps[2][1]) / size, a = Math.min(1, 0.4 + move * 6);
+      g = { ...f, kps: f.kps.map((k, j) => [t.kps[j][0] + (k[0] - t.kps[j][0]) * a, t.kps[j][1] + (k[1] - t.kps[j][1]) * a]) };
+      Object.assign(t, { box: g.box, kps: g.kps, face: g });
+    } else { t = { box: f.box, kps: f.kps, face: g, ref: undefined, lastEmbed: -99 }; tracks.push(t); }
+    used.add(t); out.push(g);
+  }
+  for (let k = tracks.length - 1; k >= 0; k--) if (!used.has(tracks[k])) tracks.splice(k, 1);
+  return out;
+}
+$("vidsave").addEventListener("click", async () => {
+  if (!V.result) return;
+  const name = (V.file?.name || "video").replace(/\.[^.]+$/, "") + "-faceswap-ai-generated.mp4";
+  const dl = window.claude ? await window.claude.use("downloads").catch(() => null) : null;
+  if (dl) { try { await dl.save({ filename: name, data: V.result }); $("vidmsg").textContent = "Saved."; } catch (e) { $("vidmsg").textContent = "Save was cancelled."; } }
+  else { const a = Object.assign(document.createElement("a"), { href: $("vidplayer").src, download: name }); document.body.appendChild(a); a.click(); a.remove();
+    $("vidmsg").textContent = "If no download started, use the player's ⋮ menu → Download."; }
+});
+
+window.addEventListener("pagehide", () => { if (L.running) stopLive(); });
+
+renderRack(); refresh(); loadBundledModels();
+try { const m = localStorage.getItem("ffl-mode"); if (m === "live" || m === "video") setMode(m); } catch (e) {}
+</script>

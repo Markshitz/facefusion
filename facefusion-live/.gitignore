@@ -1,0 +1,12 @@
+dist/
+build_tmp/
+__pycache__/
+*.pyc
+.pytest_cache/
+packaging/ffmpeg/
+*.emap.npy
+selftest.txt
+installed.txt
+web/ort-wasm-simd-threaded.*
+web/models/
+web/runtime/

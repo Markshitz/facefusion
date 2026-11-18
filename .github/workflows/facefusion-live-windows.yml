@@ -1,0 +1,208 @@
+name: FaceFusion Live — Windows build
+
+on:
+  push:
+    paths:
+      - "facefusion-live/**"
+      - ".github/workflows/facefusion-live-windows.yml"
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [directml, cuda]
+    defaults:
+      run:
+        shell: bash
+        working-directory: facefusion-live
+    env:
+      FFL_MODELS_DIR: ${{ github.workspace }}/ci_models
+      FFL_TEST_MEDIA: ${{ github.workspace }}/ci_media
+      FFL_FFMPEG_DIR: ${{ github.workspace }}/facefusion-live/packaging/ffmpeg
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (${{ matrix.flavor }})
+        run: |
+          python -m pip install --upgrade pip
+          grep -v '^onnxruntime' requirements.txt > req-ci.txt
+          pip install -r req-ci.txt pytest pyinstaller
+          if [ "${{ matrix.flavor }}" = "cuda" ]; then pip install "onnxruntime-gpu[cuda,cudnn]>=1.21"; else pip install onnxruntime-directml; fi
+          python -c "import onnxruntime as o; print(o.__version__, o.get_available_providers())"
+
+      - name: Fetch FFmpeg (GPL build, BtbN)
+        run: |
+          curl -fsSL -o ffmpeg.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+          unzip -q ffmpeg.zip -d ffx
+          mkdir -p packaging/ffmpeg
+          cp ffx/*/bin/ffmpeg.exe ffx/*/bin/ffprobe.exe packaging/ffmpeg/
+          cp ffx/*/LICENSE.txt packaging/ffmpeg/LICENSE-ffmpeg.txt
+          packaging/ffmpeg/ffmpeg.exe -hide_banner -version | head -1
+
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: ci_models
+          key: models-${{ hashFiles('facefusion-live/facefusion_live/models/manifest.py') }}
+
+      - name: Download models and test media
+        run: |
+          python -m facefusion_live models --required -y
+          python -m facefusion_live models --download inswapper_128 gfpgan_1.4 xseg_1 bisenet_resnet_34 -y
+          mkdir -p "$FFL_TEST_MEDIA"
+          curl -sSL -o "$FFL_TEST_MEDIA/t1.jpg" https://raw.githubusercontent.com/deepinsight/insightface/master/python-package/insightface/data/images/t1.jpg
+          curl -sSL -o "$FFL_TEST_MEDIA/lena.jpg" https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/lena.jpg
+
+      - name: Diagnostics
+        run: python -m facefusion_live diagnostics
+
+      - name: Test suite (from source, real inference)
+        run: python -m pytest -q -p no:cacheprovider
+
+      - name: Build executable (PyInstaller)
+        env:
+          FFL_FLAVOR: ${{ matrix.flavor }}
+        run: pyinstaller packaging/facefusion_live.spec --noconfirm --distpath dist --workpath build_tmp
+
+      - name: Smoke test built executable
+        shell: pwsh
+        working-directory: facefusion-live
+        run: |
+          $p = Start-Process dist\FaceFusionLive\FaceFusionLive.exe -ArgumentList "selftest","--image","$env:FFL_TEST_MEDIA\t1.jpg","--report","$PWD\selftest.txt" -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { Write-Error "selftest exit code $($p.ExitCode)"; exit 1 }
+          if (-not (Select-String -Path selftest.txt -Pattern "Swap OK")) { Write-Error "no swap"; exit 1 }
+          "{0:N0} MB" -f ((Get-ChildItem dist\FaceFusionLive -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        working-directory: facefusion-live
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc /DFlavor=${{ matrix.flavor }} /DVersion=0.1.0 packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem dist\installer
+
+      - name: Install silently, run, uninstall
+        shell: pwsh
+        working-directory: facefusion-live
+        run: |
+          $setup = Get-ChildItem dist\installer\*.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER" -Wait
+          $exe = "$env:LOCALAPPDATA\Programs\FaceFusion Live\FaceFusionLive.exe"
+          if (-not (Test-Path $exe)) { Write-Error "not installed"; exit 1 }
+          $p = Start-Process $exe -ArgumentList "selftest","--image","$env:FFL_TEST_MEDIA\t1.jpg","--report","$PWD\installed.txt" -Wait -PassThru
+          Get-Content installed.txt
+          if ($p.ExitCode -ne 0 -or -not (Select-String -Path installed.txt -Pattern "Swap OK")) { exit 1 }
+          Start-Process "$env:LOCALAPPDATA\Programs\FaceFusion Live\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
+          Start-Sleep 5
+          if (Test-Path $exe) { Write-Error "uninstall failed"; exit 1 }
+          Write-Host "Install / launch / uninstall OK"
+
+      - name: Portable build (no installation) — extract-and-run test
+        shell: pwsh
+        working-directory: facefusion-live
+        run: |
+          New-Item -ItemType Directory -Force dist\portable | Out-Null
+          Copy-Item -Recurse -Force dist\FaceFusionLive dist\portable\FaceFusionLive
+          Copy-Item packaging\portable.txt dist\portable\FaceFusionLive\portable.txt
+          Compress-Archive -Path dist\portable\FaceFusionLive -DestinationPath dist\FaceFusionLive-portable.zip -Force
+          # simulate a fresh PC: unzip somewhere else, no env overrides, models placed in the portable data folder
+          $t = Join-Path $env:RUNNER_TEMP "portable_test"
+          Expand-Archive dist\FaceFusionLive-portable.zip -DestinationPath $t -Force
+          $app = Join-Path $t "FaceFusionLive"
+          New-Item -ItemType Directory -Force "$app\data\models" | Out-Null
+          Copy-Item "$env:FFL_MODELS_DIR\*.onnx" "$app\data\models\"
+          Remove-Item Env:FFL_MODELS_DIR, Env:FFL_HOME -ErrorAction SilentlyContinue
+          $p = Start-Process "$app\FaceFusionLive.exe" -ArgumentList "selftest","--image","$env:FFL_TEST_MEDIA\t1.jpg","--report","$PWD\portable.txt.log" -Wait -PassThru
+          Get-Content portable.txt.log
+          if ($p.ExitCode -ne 0 -or -not (Select-String -Path portable.txt.log -Pattern "Swap OK")) { exit 1 }
+          if (-not (Test-Path "$app\data\config.json") -and -not (Test-Path "$app\data\logs")) { Write-Error "portable data dir not used"; exit 1 }
+          if (Test-Path "$env:LOCALAPPDATA\FaceFusionLive\logs\ffl.log") { Write-Host "note: LOCALAPPDATA log exists from earlier steps" }
+          Write-Host "Portable extract-and-run OK"
+
+      - name: Single-file FaceFusionLive.exe (download and run)
+        if: matrix.flavor == 'directml'
+        shell: pwsh
+        working-directory: facefusion-live
+        env:
+          FFL_ONEFILE: "1"
+          FFL_FLAVOR: directml
+        run: |
+          pyinstaller packaging/facefusion_live.spec --noconfirm --distpath dist/onefile --workpath build_onefile
+          $exe = "dist\onefile\FaceFusionLive.exe"
+          "{0:N0} MB" -f ((Get-Item $exe).Length / 1MB)
+          $p = Start-Process $exe -ArgumentList "selftest","--image","$env:FFL_TEST_MEDIA\t1.jpg","--report","$PWD\onefile.log" -Wait -PassThru
+          Get-Content onefile.log
+          if ($p.ExitCode -ne 0 -or -not (Select-String -Path onefile.log -Pattern "Swap OK")) { Write-Error "single-file exe self-test failed"; exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.flavor == 'directml'
+        with:
+          name: FaceFusionLive-exe
+          path: facefusion-live/dist/onefile/FaceFusionLive.exe
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FaceFusionLive-${{ matrix.flavor }}-portable
+          path: facefusion-live/dist/portable
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FaceFusionLive-${{ matrix.flavor }}-setup
+          path: facefusion-live/dist/installer/*.exe
+          retention-days: 14
+
+  # Publish the tested Windows builds on a fixed release so there is a stable download link:
+  # https://github.com/<owner>/<repo>/releases/download/windows-app/FaceFusionLive.exe
+  release:
+    needs: windows
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          pattern: FaceFusionLive-{exe,directml-setup,cuda-setup}
+          merge-multiple: true
+      - name: Create or update the windows-app release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -la assets
+          cat > notes.md <<'EOF'
+          **FaceFusion Live for Windows**: photo, video and **live webcam** face swapping, running locally on your PC.
+
+          - **`FaceFusionLive.exe`**: single file, no installation. Download and double-click. It works on NVIDIA,
+            AMD and Intel graphics (DirectML) or on the CPU.
+          - `FaceFusionLive-*-directml-setup.exe` / `-cuda-setup.exe`: optional installers (CUDA = fastest on NVIDIA).
+
+          On first launch the app shows the required models and their sizes (about 450 MB) and asks before
+          downloading them. Windows SmartScreen may warn because the file is not code-signed: click *More info* →
+          *Run anyway*.
+
+          Use only faces of people who have given consent. The models are licensed for non-commercial use only.
+          Built automatically from commit ${{ github.sha }}.
+          EOF
+          sed -i 's/^          //' notes.md
+          if ! gh release view windows-app >/dev/null 2>&1; then
+            gh release create windows-app --prerelease --title "FaceFusion Live for Windows (latest build)" --notes-file notes.md --target "${{ github.sha }}"
+          fi
+          gh release edit windows-app --notes-file notes.md
+          gh release upload windows-app assets/FaceFusionLive.exe assets/*-setup.exe --clobber
+          gh release view windows-app
