@@ -35,6 +35,9 @@ jobs:
           mkdir -p ../src_models && cd ../src_models
           B=https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0
           for f in scrfd_2.5g arcface_w600k_r50 inswapper_128 open_nsfw gpen_bfr_256; do curl -fsSL -o $f.onnx $B/$f.onnx; done
+          # 106-point landmarks (lip tracking) ship only inside InsightFace's buffalo_l pack
+          curl -fsSL -o buffalo_l.zip https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip
+          mkdir -p buffalo_l && unzip -q -j buffalo_l.zip 2d106det.onnx -d buffalo_l && rm buffalo_l.zip
           ls -la
       - name: Build compact model bundle
         run: |

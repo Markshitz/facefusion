@@ -150,6 +150,41 @@ Several are **non-commercial** (see `docs/LICENSES.md`).
 - **Only the chosen people are swapped**: in video mode faces are matched by ArcFace identity, so strangers are left
   untouched.
 
+## Lip sync and motion accuracy (measured)
+
+`tools/fidelity_bench.py` runs the 2DFAN4 landmark model on the original video and on the swapped result and compares
+them frame by frame:
+- **Lip-sync correlation:** how closely the swapped mouth opening tracks the original (1.0 = identical).
+- **Lip error:** the average difference in mouth opening.
+- **Motion error:** the average drift of the eyes, nose and mouth, as a fraction of the distance between the eyes.
+
+| Clip (50 frames) | Pipeline | Lip-sync correlation | Lip error | Motion error | Identity |
+|---|---|---|---|---|---|
+| talking (LivePortrait d11) | old | 0.885 | 0.120 | 0.039 | 0.795 |
+| | **new default** | **0.988** | **0.065** | **0.028** | 0.693 |
+| fast head motion (d12) | old | 0.983 | 0.016 | 0.031 | 0.744 |
+| | **new default** | **0.988** | **0.011** | **0.027** | 0.698 |
+
+The new default pipeline:
+- **Precise landmarks:** 2DFAN4 measures 68 points per frame; the eyes, nose tip and mouth corners from it drive the
+  alignment.
+- **Zero-lag video smoothing:** a Savitzky–Golay fit over 2 frames before and 2 after, so there is no trailing behind
+  head turns.
+- **Original lips:** the target's own lips and mouth opening are kept after restoration. The swap model under-opens
+  the mouth, and this is the largest gain.
+
+Keeping the lips costs some measured identity (ArcFace similarity to the source, about 0.80 → 0.69), so *Lip sync
+strength* trades the two:
+
+| Lip sync strength | Lip-sync correlation | Identity |
+|---|---|---|
+| 1.0 (default) | 0.988 | 0.693 |
+| 0.6 | 0.976 | 0.725 |
+| 0.35 | 0.951 | 0.754 |
+
+The web page uses InsightFace `2d106det` (1.4 MB) instead of 2DFAN4 to fit the artifact size limit. It scores
+correlation 0.962, lip error 0.078 and motion error 0.032 on the same talking clip.
+
 ## Performance architecture
 
 - Live: capture thread (keeps only the newest frame) → swap thread → latest-result slot drawn by a 60 Hz UI timer.
