@@ -182,6 +182,35 @@ strength* trades the two:
 | 0.6 | 0.976 | 0.725 |
 | 0.35 | 0.951 | 0.754 |
 
+### Compared with the default pipelines of Deep-Live-Cam and FaceFusion
+
+These are **reconstructions of each tool's default settings run through this engine**, not runs of the tools
+themselves. Running downloaded third-party code was not permitted in the build environment. The settings come from
+each project's source code:
+- **Deep-Live-Cam:** inswapper on the detector's 5 points, re-detected every frame, no smoothing, mouth mask off, no
+  enhancer.
+- **FaceFusion 3.x:** HyperSwap 1a (256 px), 2DFAN4 alignment, box mask with blur 0.3, no smoothing, no mouth keeping,
+  no enhancer.
+
+The detector and paste-back details differ slightly from the real tools. All runs use the same source photo and the
+same 50 frames.
+
+| Clip | Pipeline | Lip-sync correlation | Lip error | Motion error | Identity |
+|---|---|---|---|---|---|
+| talking (d11) | Deep-Live-Cam default | 0.895 | 0.129 | 0.044 | 0.884 |
+| | FaceFusion default | 0.917 | 0.082 | 0.033 | 0.738 |
+| | **FaceFusion Live default** | **0.988** | 0.065 | 0.028 | 0.693 |
+| | FaceFusion Live + HyperSwap | 0.983 | **0.048** | **0.023** | 0.644 |
+| fast head (d12) | Deep-Live-Cam default | 0.980 | 0.028 | 0.034 | 0.842 |
+| | FaceFusion default | 0.982 | 0.028 | 0.036 | 0.671 |
+| | **FaceFusion Live default** | 0.988 | 0.011 | **0.027** | 0.698 |
+| | FaceFusion Live + HyperSwap | **0.994** | **0.008** | 0.032 | 0.602 |
+
+**Results:** FaceFusion Live follows lips and motion more closely than both reconstructed defaults on every lip and
+motion measure. The trade-off is the identity score: Deep-Live-Cam keeps more of the source person's lips and face
+texture because it doesn't keep the original lips. HyperSwap (*Settings › Swap model*) follows lips even more
+closely on these clips, at a further identity cost.
+
 The web page uses InsightFace `2d106det` (1.4 MB) instead of 2DFAN4 to fit the artifact size limit. It scores
 correlation 0.962, lip error 0.078 and motion error 0.032 on the same talking clip.
 
