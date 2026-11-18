@@ -62,6 +62,63 @@ def mouth_mask(lm68_crop: np.ndarray, size: int, grow: float = 0.15) -> np.ndarr
     return cv2.GaussianBlur(m, (0, 0), k)
 
 
+def _warp_triangle(src: np.ndarray, dst: np.ndarray, t_src: np.ndarray, t_dst: np.ndarray) -> None:
+    """Affine-warp one triangle of `src` into `dst` (in-place)."""
+    r1, r2 = cv2.boundingRect(t_src.astype(np.float32)), cv2.boundingRect(t_dst.astype(np.float32))
+    if r1[2] < 1 or r1[3] < 1 or r2[2] < 1 or r2[3] < 1:
+        return
+    a = (t_src - r1[:2]).astype(np.float32)
+    b = (t_dst - r2[:2]).astype(np.float32)
+    patch = src[r1[1]:r1[1] + r1[3], r1[0]:r1[0] + r1[2]]
+    if patch.size == 0:
+        return
+    m = cv2.getAffineTransform(a, b)
+    warped = cv2.warpAffine(patch, m, (r2[2], r2[3]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+    mask = np.zeros((r2[3], r2[2]), np.float32)
+    cv2.fillConvexPoly(mask, b.astype(np.int32), 1.0, cv2.LINE_AA)
+    y0, x0 = r2[1], r2[0]
+    roi = dst[y0:y0 + r2[3], x0:x0 + r2[2]]
+    h, w = roi.shape[:2]
+    if h == 0 or w == 0:
+        return
+    mk = mask[:h, :w, None]
+    roi[:] = (roi * (1 - mk) + warped[:h, :w] * mk).astype(roi.dtype)
+
+
+# mouth control points (2DFAN4 68 indices) and fixed anchors around them (nose base, cheeks, jaw)
+_MOUTH = list(range(48, 68))
+_ANCHORS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 31, 32, 33, 34, 35]
+
+
+def warp_mouth(frame: np.ndarray, lm_now: np.ndarray, lm_target: np.ndarray) -> None:
+    """Reshape the swapped mouth (landmarks lm_now, measured on `frame`) so its lips land on lm_target.
+
+    Piecewise-affine warp over a Delaunay mesh of the lip points plus fixed anchors (nose base, jaw):
+    the mouth opens and closes exactly like the original while keeping the swapped (source) lip texture.
+    """
+    src_pts = np.vstack([lm_now[_MOUTH], lm_now[_ANCHORS]]).astype(np.float32)
+    dst_pts = np.vstack([lm_target[_MOUTH], lm_now[_ANCHORS]]).astype(np.float32)
+    h, w = frame.shape[:2]
+    x0, y0 = np.floor(np.minimum(src_pts.min(0), dst_pts.min(0))).astype(int) - 2
+    x1, y1 = np.ceil(np.maximum(src_pts.max(0), dst_pts.max(0))).astype(int) + 2
+    x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w - 1), min(y1, h - 1)
+    if x1 - x0 < 8 or y1 - y0 < 8:
+        return
+    sub = cv2.Subdiv2D((int(x0), int(y0), int(x1 - x0 + 1), int(y1 - y0 + 1)))
+    index = {}
+    for k, p in enumerate(dst_pts):
+        q = (float(np.clip(p[0], x0, x1)), float(np.clip(p[1], y0, y1)))
+        index[(round(q[0], 2), round(q[1], 2))] = k
+        sub.insert(q)
+    src = frame.copy()
+    for t in sub.getTriangleList():
+        tri = t.reshape(3, 2)
+        ids = [index.get((round(float(x), 2), round(float(y), 2))) for x, y in tri]
+        if None in ids:
+            continue
+        _warp_triangle(src, frame, src_pts[ids], dst_pts[ids])
+
+
 def restore_mouth(frame: np.ndarray, original: np.ndarray, lm68: np.ndarray, region: str = "inner",
                   strength: float = 1.0) -> None:
     """Blend the original mouth back into `frame` (in-place), feathered, only around the mouth.

@@ -35,7 +35,7 @@ class FaceSettingsPanel(QScrollArea):
         self._combo("Detail (pixel boost)", "pixel_boost", [("128 px (fastest)", 1), ("256 px", 2), ("512 px (best)", 4)])
         self._check("Keep original lips", "mouth_preserve", "Exact lip sync: the target's own lips and mouth opening follow speech precisely")
         self._slider("Lip sync strength", "mouth_strength", 0, 1)
-        self._combo("Mouth region", "mouth_region", [("Lips + opening (best lip sync)", "lips"), ("Teeth/opening only", "inner")])
+        self._combo("Mouth region", "mouth_region", [("Reshape swapped lips to the speech (best)", "warp"), ("Original lips + opening", "lips"), ("Teeth/opening only", "inner")])
         self._combo("Landmarks", "landmarker", [("Precise 68-point (follows lips/eyes)", "2dfan4"), ("Fast (detector points)", "none")])
         self._check("Zero-lag video smoothing", "offline_smoothing", "Video export: smooth using neighbouring frames, no trailing behind movement")
         self._check("Occlusion mask", "occlusion_mask", "Keep hands/objects in front of the face (XSeg model)")

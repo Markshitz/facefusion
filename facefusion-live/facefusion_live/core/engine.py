@@ -11,7 +11,7 @@ import numpy as np
 
 from facefusion_live.app.config import Settings
 from facefusion_live.core.align import warp_face
-from facefusion_live.core.blend import box_mask, color_transfer, forehead_fade, paste_back, restore_mouth
+from facefusion_live.core.blend import box_mask, color_transfer, forehead_fade, paste_back, restore_mouth, warp_mouth
 from facefusion_live.core.face import Face
 from facefusion_live.inference.session import Sessions, provider_label, resolve_providers
 from facefusion_live.models.store import ModelStore
@@ -199,7 +199,14 @@ class FaceEngine:
             lm = target.landmarks68
             if lm is None and self.store.is_installed("fan_68_5"):
                 lm = self.landmarker(target.kps)
-            if lm is not None:
+            if lm is not None and s.mouth_region == "warp" and self.store.is_installed("2dfan4"):
+                # keep the swapped (source) lips but move them exactly like the original mouth,
+                # then show the original opening (teeth, tongue)
+                lm_now, score = self.fan68(frame, target.bbox)
+                if score > 0.25:
+                    warp_mouth(frame, lm_now, lm)
+                restore_mouth(frame, original, lm, "inner", 1.0)
+            elif lm is not None:
                 restore_mouth(frame, original, lm, s.mouth_region, s.mouth_strength)
 
     def process(self, frame: np.ndarray, pairs: list[tuple[Face, SourceIdentity]]) -> np.ndarray:
