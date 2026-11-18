@@ -670,7 +670,7 @@ async function swapOne(base, out, face, lat, boost, onPart = async () => {}) {
     Job.advance();
   }
   // Fade the top quarter of the crop (mid-forehead) into the original so no horizontal seam shows.
-  const mask = boxMask(size, $("feather").value / 100), fade = 0.25;
+  const mask = boxMask(size, $("feather").value / 100), fade = 0.15;
   for (let y = 0; y < size; y++) { let t = Math.min(1, Math.max(0, (y - size * 0.02) / (size * fade))); t = t * t * (3 - 2 * t);
     if (t < 1) for (let x = 0; x < size; x++) mask[y * size + x] *= t; }
   pasteBack(out, rgb, size, M, mask, $("blend").value / 100);

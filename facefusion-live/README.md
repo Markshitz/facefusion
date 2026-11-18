@@ -206,6 +206,20 @@ same 50 frames.
 | | **FaceFusion Live default** | 0.988 | 0.011 | **0.027** | 0.698 |
 | | FaceFusion Live + HyperSwap | **0.994** | **0.008** | 0.032 | 0.602 |
 
+**Mouth warp (now the default).** Instead of keeping the target's own lips, the swapped (source) lips are
+reshaped onto the original mouth's measured landmarks. This uses a piecewise-affine warp over a Delaunay mesh,
+anchored on the nose and jaw, followed by the original mouth opening. Skin-tone match and forehead blend were lowered
+to 0.15 to recover identity.
+
+| Clip | Pipeline | Lip-sync correlation | Lip error | Motion error | Identity |
+|---|---|---|---|---|---|
+| talking (d11) | Deep-Live-Cam default | 0.895 | 0.129 | 0.044 | 0.884 |
+| | FaceFusion default | 0.917 | 0.082 | 0.033 | 0.738 |
+| | **FaceFusion Live, final default** | **0.990** | **0.028** | **0.019** | 0.729 |
+| fast head (d12) | Deep-Live-Cam default | 0.980 | 0.028 | 0.034 | 0.842 |
+| | FaceFusion default | 0.982 | 0.028 | 0.036 | 0.671 |
+| | **FaceFusion Live, final default** | **0.994** | **0.010** | **0.019** | 0.706 |
+
 **Results:** FaceFusion Live follows lips and motion more closely than both reconstructed defaults on every lip and
 motion measure. The trade-off is the identity score: Deep-Live-Cam keeps more of the source person's lips and face
 texture because it doesn't keep the original lips. HyperSwap (*Settings › Swap model*) follows lips even more

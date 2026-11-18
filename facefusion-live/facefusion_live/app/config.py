@@ -32,9 +32,9 @@ def app_home() -> Path:
 # Quality presets. Measured on CPU: the swap model is ~97% of the time; pixel boost x2 runs it 4x for ~10% more
 # detail, while GPEN restoration gives most of the sharpness for ~0.3x of one swap pass.
 PRESETS = {
-    "best": dict(pixel_boost=2, enhancer="gpen_bfr_256", enhance_strength=0.8, color_match=0.3, forehead_blend=0.25),
-    "balanced": dict(pixel_boost=1, enhancer="gpen_bfr_256", enhance_strength=0.7, color_match=0.3, forehead_blend=0.25),
-    "fast": dict(pixel_boost=1, enhancer="none", color_match=0.3, forehead_blend=0.25),
+    "best": dict(pixel_boost=2, enhancer="gpen_bfr_256", enhance_strength=0.8, color_match=0.15, forehead_blend=0.15),
+    "balanced": dict(pixel_boost=1, enhancer="gpen_bfr_256", enhance_strength=0.7, color_match=0.15, forehead_blend=0.15),
+    "fast": dict(pixel_boost=1, enhancer="none", color_match=0.15, forehead_blend=0.15),
 }
 
 
@@ -52,8 +52,8 @@ class Settings:
     pixel_boost: int = 1              # 1, 2 or 4 -> crop 128/256/512 (see PRESETS)
     blend: float = 1.0                # 0..1 opacity of the swapped face
     mask_blur: float = 0.3            # feather amount of box mask
-    color_match: float = 0.3          # 0..1 LAB statistic transfer strength
-    forehead_blend: float = 0.25      # 0..0.5 fade of the crop top into the original forehead (hides seams)
+    color_match: float = 0.15         # 0..1 LAB statistic transfer strength
+    forehead_blend: float = 0.15     # 0..0.5 fade of the crop top into the original forehead (hides seams)
     occlusion_mask: bool = False      # XSeg occluder mask
     region_mask: bool = False         # BiSeNet face-parsing mask
     mouth_preserve: bool = True       # keep the original mouth: exact lip sync (see mouth_region)
