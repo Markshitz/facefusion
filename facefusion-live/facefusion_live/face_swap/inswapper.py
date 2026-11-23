@@ -56,7 +56,7 @@ class InSwapper:
         self.sess = sessions.get(path)
         self._batched: dict = {1: self.sess}
         self._batch_ok = True  # set False if a batched run ever returns inconsistent sub-grids (seen on DirectML)
-        self._batch_verified = False
+        self._batch_verified: set = set()  # batch sizes whose output was checked against single runs
         self.emap = load_emap(path)
 
     def _session(self, batch: int):
@@ -89,10 +89,10 @@ class InSwapper:
         if self._batch_ok:
             ys = self._run_batch(grid, latent)
             bad = subgrid.mismatched(ys)
-            if not bad and not self._batch_verified:  # once per session: batched item 0 must equal a single run
-                self._batch_verified = True
-                single = self._run_batch([grid[0]], latent)[0]
-                bad = float(np.abs(single - ys[0]).mean()) > 2.0
+            n = len(grid)
+            if not bad and n not in self._batch_verified:  # once per batch size: first and last item vs single runs
+                self._batch_verified.add(n)
+                bad = any(float(np.abs(self._run_batch([grid[k]], latent)[0] - ys[k]).mean()) > 2.0 for k in (0, n - 1))
             if bad:  # the batched GPU run went wrong: never batch again, redo one at a time
                 log.warning("Batched pixel boost gave inconsistent results on this device; running sub-grids one by one")
                 self._batch_ok = False

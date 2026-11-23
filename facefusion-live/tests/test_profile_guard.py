@@ -33,4 +33,5 @@ def test_hull_mask_covers_face_not_background():
     lm = _face() * 1.28  # into a 128 px crop
     m = face_hull_mask(lm, 128)
     assert m[int(lm[30, 1]), int(lm[30, 0])] > 0.95  # nose
-    assert m[5, 5] < 0.01 and m[5, 122] < 0.01  # corners are background
+    assert m[122, 5] < 0.01 and m[122, 122] < 0.01  # bottom corners (beside the jaw) are background
+    assert m[2, 64] > 0.95  # open to the crop top: the forehead stays swapped

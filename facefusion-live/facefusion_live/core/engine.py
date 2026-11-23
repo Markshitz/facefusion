@@ -11,7 +11,7 @@ import numpy as np
 
 from facefusion_live.app.config import Settings
 from facefusion_live.core.align import transform_points, warp_face
-from facefusion_live.core.blend import PROFILE, box_mask, color_transfer, face_hull_mask, frontalness, mouth_landmarks_ok, forehead_fade, paste_back, restore_mouth, warp_mouth
+from facefusion_live.core.blend import PROFILE, box_mask, color_transfer, face_hull_mask, frontalness, region_mask, mouth_landmarks_ok, forehead_fade, paste_back, restore_mouth, warp_mouth
 from facefusion_live.core.face import Face
 from facefusion_live.inference.session import Sessions, provider_label, resolve_providers
 from facefusion_live.models.store import ModelStore
@@ -181,8 +181,17 @@ class FaceEngine:
         mask = box_mask(size, s.mask_blur, 0.0).copy()
         if s.forehead_blend > 0:
             mask *= forehead_fade(size, s.forehead_blend)
-        if s.face_outline and target.landmarks68 is not None:
-            mask = np.minimum(mask, face_hull_mask(transform_points(target.landmarks68, m), size))
+        if s.face_outline:
+            lm = target.landmarks68
+            if lm is not None and frontalness(lm) >= PROFILE:
+                mask = np.minimum(mask, face_hull_mask(transform_points(lm, m), size))
+            elif lm is None:  # no 68 points (fast/adaptive mode): clip to the detector's face box instead
+                x0, y0, x1, y1 = target.bbox
+                box = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], np.float32)
+                corners = transform_points(box, m)
+                corners[:2, 1] = -1.0  # open the top to the crop edge: the forehead stays swapped (forehead fade blends it)
+                mask = np.minimum(mask, region_mask(corners, size))
+            # profile (frontalness < PROFILE): 68 points are guesses there, an outline from them would cut the face
         if s.occlusion_mask and self.store.is_installed("xseg_1"):
             mask = np.minimum(mask, self.occluder(crop))
         if s.region_mask and self.store.is_installed("bisenet_resnet_34"):

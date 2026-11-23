@@ -333,7 +333,7 @@ async function loadBundledModels() {
 }
 
 // ---- image helpers ----
-async function fileToCanvas(file, maxSide = 8192) {
+async function fileToCanvas(file, maxSide = 4096) {  // larger photos are scaled down: an 8K canvas alone can crash a phone tab
   const bmp = await createImageBitmap(file);
   const s = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
   const c = document.createElement("canvas"); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
@@ -533,10 +533,12 @@ async function openPhoto(file, title) {
   try { const c = await fileToCanvas(file); Job.advance(); return c; }
   catch (e) { Job.finish(`Could not open ${file.name}: it is not a supported image.`, "err"); return null; }
 }
-$("srcfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f || S.busy) return; $("srcname").textContent = f.name;
+$("srcfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f) return;
+  if (S.busy) { e.target.value = ""; status("Still working on the previous step. Choose the photo again in a moment.", "err"); return; } $("srcname").textContent = f.name;
   S.busy = true; refresh(); const c = await openPhoto(f, "Preparing source photo");
   if (c) { S.src = c; S.srcFaces = []; showSource(); if (!S.loadingModels) Job.total = 4; await analyzeSource(); } S.busy = false; refresh(); });
-$("tgtfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f || S.busy) return; $("tgtname").textContent = f.name;
+$("tgtfile").addEventListener("change", async (e) => { const f = e.target.files[0]; if (!f) return;
+  if (S.busy) { e.target.value = ""; status("Still working on the previous step. Choose the photo again in a moment.", "err"); return; } $("tgtname").textContent = f.name;
   S.busy = true; refresh(); const c = await openPhoto(f, "Preparing target photo");
   if (c) { S.tgt = c; S.tgtFaces = []; S.result = null; showTarget(); showResult(); if (!S.loadingModels) Job.total = 3; await analyzeTarget(); } S.busy = false; refresh(); });
 
