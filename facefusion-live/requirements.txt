@@ -1,0 +1,8 @@
+numpy>=1.26,<3
+opencv-python-headless>=4.9
+onnx>=1.16
+onnxruntime>=1.18            # CPU. GPU: replace with onnxruntime-gpu[cuda,cudnn] (NVIDIA) or onnxruntime-directml (Windows)
+PySide6>=6.6
+psutil>=5.9
+pygrabber>=0.2; sys_platform == "win32"
+pyvirtualcam>=0.11; sys_platform != "linux" or platform_machine == "x86_64"

@@ -1,0 +1,71 @@
+name: FaceFusion Live — web app (GitHub Pages)
+
+# Builds the browser version (models built in) and, from the default branch, deploys it to GitHub Pages so the
+# Live webcam mode works (claude.ai artifacts cannot use the camera). One-time setup by the repo owner:
+# Settings > Pages > Build and deployment > Source: "GitHub Actions".
+on:
+  push:
+    paths:
+      - "facefusion-live/web/**"
+      - ".github/workflows/facefusion-live-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: facefusion-live
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download source models (GitHub releases)
+        run: |
+          mkdir -p ../src_models && cd ../src_models
+          B=https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0
+          for f in scrfd_2.5g arcface_w600k_r50 inswapper_128 open_nsfw gpen_bfr_256; do curl -fsSL -o $f.onnx $B/$f.onnx; done
+          # 106-point landmarks (lip tracking) ship only inside InsightFace's buffalo_l pack
+          curl -fsSL -o buffalo_l.zip https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip
+          mkdir -p buffalo_l && unzip -q -j buffalo_l.zip 2d106det.onnx -d buffalo_l && rm buffalo_l.zip
+          ls -la
+      - name: Build compact model bundle
+        run: |
+          pip install -q onnx numpy
+          python web/build_web_models.py ../src_models web/models
+      - name: Fetch ONNX Runtime Web (CPU + WebGPU)
+        run: bash web/fetch_runtime.sh
+      - name: Assemble site
+        run: |
+          mkdir -p ../site/models
+          # claude.ai wraps artifact pages in a document skeleton; a normal web host needs it written out
+          { printf '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>\n'
+            cat web/index.html; printf '\n</body></html>\n'; } > ../site/index.html
+          cp web/coi-sw.js web/ort-wasm-simd-threaded.* ../site/
+          cp web/models/* ../site/models/
+          touch ../site/.nojekyll
+          du -sh ../site; ls ../site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,23 @@
+FaceFusion Live — Responsible Use Terms
+
+FaceFusion Live processes images, videos and webcam streams entirely on your
+computer. Nothing you load is uploaded and no telemetry is collected.
+
+By installing or using this software you agree that you will:
+
+1. Only use the face of a person who has given you explicit, informed consent,
+   and only replace faces of people who have consented.
+2. Never create sexual, intimate or nude imagery of any real person. Explicit
+   content is detected and refused by the application.
+3. Never use the software to deceive, defraud, harass, defame, bully or
+   impersonate anyone, or to bypass identity verification / liveness checks.
+4. Clearly disclose that media created with this software is AI-generated.
+   Exported images and videos always carry a visible "AI-generated" label and
+   metadata. Do not remove or obscure them.
+5. Comply with all laws that apply to you, including privacy, publicity-rights,
+   election and deepfake legislation.
+
+The bundled software is provided "as is" without warranty. Several AI models
+that the application can download are licensed for NON-COMMERCIAL research use
+only (see docs/LICENSES.md). You are responsible for complying with those
+licenses.
